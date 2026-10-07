@@ -156,6 +156,18 @@ const Root = defineComponent({
             scrubLegacyHash();
 
             await resolveSession();
+
+            /*
+            | El flag solo aplica con sesion existente ("ver el portal como
+            | comprador" desde el panel). Sin sesion no hace nada, y hay que
+            | limpiarlo aca: si quedara true, un login de admin montaria el
+            | PortalShell y el go('dashboard') posterior tiraria "Ruta
+            | desconocida" (dashboard la registra el AdminShell).
+            */
+            if (!user.value) {
+                forcePortal.value = false;
+            }
+
             applyTheme();
 
             loading.value = false;
@@ -171,6 +183,15 @@ const Root = defineComponent({
                 const pending = readPendingOrder();
 
                 go(pending ? 'order-result' : 'events', pending || {});
+
+                return;
+            }
+
+            // Admin con ?as=portal: el shell montado es el PortalShell, que no
+            // registra "dashboard" (eso lo hace el AdminShell). Ir al home del
+            // portal; sin esto el go() tira "Ruta desconocida" en consola.
+            if (user.value?.is_admin && forcePortal.value) {
+                go('events');
 
                 return;
             }
