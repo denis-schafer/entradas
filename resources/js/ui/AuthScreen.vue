@@ -42,13 +42,10 @@ async function submit() {
             password: form.password,
         });
 
-        // Los metadatos viajan en el mismo evento que el usuario: la raiz
-        // decide a donde llevar (panel, configuracion o portal) cuando ya sabe
-        // que shell va a montar. Emitir la navegacion desde aca seria pedir una
+        // El shell que monta la raiz depende de is_admin de la respuesta, no
+        // de aca: emitir la navegacion desde este componente seria pedir una
         // pantalla que todavia no existe en el router.
-        emit('logged-in', data.user, {
-            must_change_password: Boolean(data.must_change_password),
-        });
+        emit('logged-in', data.user);
 
         toast(`Bienvenido, ${String(data.user.name || '').split(' ')[0]}`, 'success');
     } catch (err) {
@@ -77,7 +74,6 @@ async function submit() {
                         id="identifier"
                         v-model="form.identifier"
                         type="text"
-                        inputmode="numeric"
                         autocomplete="username"
                         class="form-control"
                         :class="{ 'is-invalid': error }"

@@ -2,23 +2,18 @@
 /**
  * Cambio de contrasena del operador.
  *
- * Es una pantalla propia y no una seccion de Configuracion a proposito: cuando
- * el admin entra con la contrasena temporal, el middleware le responde 428 a
- * TODO el panel salvo a este endpoint. Si el formulario viviera adentro de otra
- * pantalla, esa pantalla no podria ni cargar sus propios datos y el admin
- * quedaria sin salida.
+ * Es una pantalla propia y no una seccion de Configuracion a proposito: es
+ * una accion personal (como "Mi usuario" en cualquier herramienta) y vive en
+ * el menu para que este siempre a un click, sin importar en que seccion se
+ * este trabajando.
  *
- * Sirve para dos cosas: destrabar el primer ingreso y cambiar la contrasena
- * cuando uno quiera.
+ * Es voluntaria: nadie es obligado a cambiarla al primer ingreso.
  */
 import { reactive, ref, computed } from 'vue';
 import api, { toError } from '../api.js';
 import { toast } from '../ui/toast.js';
 
 const props = defineProps({
-    // El flag se pasa aparte porque el usuario que trae el shell se actualiza
-    // recien cuando la contrasena quedo cambiada de verdad.
-    required: { type: Boolean, default: false },
     user: { type: Object, default: null },
 });
 
@@ -82,17 +77,9 @@ async function submit() {
         <header class="password__head">
             <h1 class="h5 fw-bold mb-1">Tu contrasena</h1>
             <p class="text-muted-2 mb-0">
-                Cambiala cuando quieras. Si seguis usando la temporal, el panel
-                queda bloqueado hasta que la cambies.
+                Cambiala cuando quieras.
             </p>
         </header>
-
-        <div v-if="required" class="et-alert et-alert--warning mb-4">
-            <i class="bi bi-exclamation-triangle me-2"></i>
-            <strong>Estas con la contrasena temporal.</strong>
-            Elegi una nueva para poder operar: hasta entonces el panel no te
-            deja ver nada.
-        </div>
 
         <form class="password__card et-surface-raised" novalidate @submit.prevent="submit">
             <div class="mb-3">

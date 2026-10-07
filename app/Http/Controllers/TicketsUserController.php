@@ -87,8 +87,8 @@ class TicketsUserController extends Controller
             /*
             | Cambio de contrasena opcional desde el admin: si llega vacio se
             | ignora. Si llega lleno se exige la confirmacion (regla de
-            | Laravel "confirmed") y se marca must_change_password para que
-            | el usuario la cambie en el proximo ingreso.
+            | Laravel "confirmed") y se marca must_change_password como aviso
+            | de que la contrasena que tiene puesta es temporal.
             */
             'password' => 'sometimes|string|min:8|confirmed',
         ]);
@@ -124,7 +124,7 @@ class TicketsUserController extends Controller
 
         /*
         | Si el admin/operador ingreso una contrasena nueva en el form de
-        | edicion, se hashea y se obliga al usuario a cambiarla al entrar.
+        | edicion, se hashea y se la marca como temporal en el listado.
         */
         if (! empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);
@@ -158,7 +158,8 @@ class TicketsUserController extends Controller
 
     /**
      * Resetea la contrasena y devuelve la nueva para comunicarsela. El flag
-     * must_change_password obliga a cambiarla al entrar.
+     * must_change_password queda como aviso de que esa contrasena es temporal;
+     * ya no obliga a cambiarla al entrar.
      */
     public function resetPassword(Request $request, int $id): JsonResponse
     {

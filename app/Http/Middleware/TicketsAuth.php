@@ -30,16 +30,6 @@ class TicketsAuth
             return $this->deny($request, 'Sin permisos para el panel', 403);
         }
 
-        if ($user->must_change_password) {
-            // Se le deja pasar unicamente al endpoint que resuelve el cambio.
-            if (! $request->is('tickets-admin/auth/change-password')) {
-                return response()->json([
-                    'message' => 'Tenes que cambiar la contrasena antes de seguir',
-                    'must_change_password' => true,
-                ], 428);
-            }
-        }
-
         return $next($request);
     }
 

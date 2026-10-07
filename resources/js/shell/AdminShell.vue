@@ -44,10 +44,8 @@ const route = useRoute;
 const menuOpen = ref(false);
 
 // El usuario vive en la raiz (Root) para que login y logout pasen por un solo
-// lugar, pero el flag de "cambiar la contrasena" lo limpia esta misma pantalla,
-// asi que el shell guarda una copia.
+// lugar; este shell guarda una copia para poder refrescarla desde aca.
 const user = ref(props.user);
-const mustChangePassword = ref(Boolean(props.user?.must_change_password));
 
 const VIEWS = {
     dashboard: DashboardView,
@@ -136,15 +134,7 @@ function canGo(name) {
     return Boolean(ACTIVE_FOR[name]) && allowed.includes(ACTIVE_FOR[name]);
 }
 
-const activeNav = computed(() => {
-    // Mientras tiene que cambiar la contrasena, el menu marca "Mi contrasena"
-    // y no la pantalla desde la que se entro.
-    if (mustChangePassword.value) {
-        return 'password';
-    }
-
-    return ACTIVE_FOR[route.value.name] || route.value.name;
-});
+const activeNav = computed(() => ACTIVE_FOR[route.value.name] || route.value.name);
 
 function navigate(name) {
     menuOpen.value = false;
@@ -179,27 +169,6 @@ function openPortal() {
     window.open('/?as=portal', '_blank', 'noopener');
 }
 
-/**
- * Ya se cargo una contrasena de verdad: se destraba el panel y se manda al
- * dashboard. El logout alcanza con el backend porque la sesion sigue viva.
- */
-async function onPasswordChanged() {
-    mustChangePassword.value = false;
-
-    try {
-        const { data } = await api.get('tickets-admin/auth/me');
-
-        if (data?.user) {
-            user.value = data.user;
-        }
-    } catch {
-        // Si el /me falla no pasa nada: el flag local ya esta limpio y las
-        // pantallas van a pedir sus datos de nuevo igual.
-    }
-
-    go(firstAllowedRoute());
-}
-
 async function logout() {
     try {
         await api.post('tickets-admin/auth/logout');
@@ -228,9 +197,7 @@ onMounted(() => {
 | componente, asi que cada cambio de ruta se revalida contra los permisos.
 */
 watch(() => route.value.name, () => {
-    if (!mustChangePassword.value) {
-        ensureAllowed();
-    }
+    ensureAllowed();
 });
 
 onBeforeUnmount(() => {
@@ -301,22 +268,10 @@ onBeforeUnmount(() => {
 
             <main class="admin__content">
                 <component
-                    v-if="!mustChangePassword"
                     :is="currentView"
                     :key="`${route.name}:${JSON.stringify(route.params)}`"
                     v-bind="{ ...route.params, user }"
                     @navigate="(name, params) => go(name, params)"
-                />
-
-                <!-- Con la contrasena temporal no hay nada mas que mostrar: el
-                     servidor responde 428 a todo el panel salvo este formulario.
-                     Se muestra la pantalla completa en vez de una pantalla con
-                     un error arriba, asi queda claro cual es el unico paso. -->
-                <PasswordView
-                    v-else
-                    :required="true"
-                    :user="user"
-                    @changed="onPasswordChanged"
                 />
             </main>
         </div>

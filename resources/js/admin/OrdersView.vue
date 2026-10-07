@@ -454,7 +454,7 @@ onBeforeUnmount(() => {
                             </button>
 
                             <button
-                                v-if="ticket.wristband_given"
+                                v-if="ticket.wristband_given && ticket.status !== 'used'"
                                 class="btn btn-et-ghost btn-sm"
                                 title="Quitar la pulsera entregada (caso de error)"
                                 @click="giveWristband(ticket, false)"

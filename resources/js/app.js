@@ -91,7 +91,7 @@ const Root = defineComponent({
             return 'auth';
         });
 
-        function handleLoggedIn(loggedUser, meta = {}) {
+        function handleLoggedIn(loggedUser) {
             user.value = loggedUser;
             applyTheme();
 
@@ -101,17 +101,14 @@ const Root = defineComponent({
             // explota con "Ruta desconocida" en el primer login.
             nextTick(() => {
                 if (loggedUser?.is_admin) {
-                    // Entra al panel. Tres casos, en este orden:
-                    //   1. contrasena temporal -> la pantalla para cambiarla,
-                    //      que es lo unico que el servidor deja hacer.
-                    //   2. cajero -> escanear, que es lo unico que ve.
-                    //   3. admin -> el dashboard de siempre.
+                    // Entra al panel. La contrasena temporal ya no obliga a
+                    // cambiarla: se entra directo y quien quiera cambiarla lo
+                    // hace desde "Mi contrasena".
+                    //   1. cajero -> escanear, que es lo unico que ve.
+                    //   2. admin -> el dashboard de siempre.
                     const routes = Array.isArray(loggedUser.routes) ? loggedUser.routes : ['*'];
-                    const home = meta.must_change_password
-                        ? 'password'
-                        : (routes.includes('*') ? 'dashboard' : routes[0]);
 
-                    go(home);
+                    go(routes.includes('*') ? 'dashboard' : routes[0]);
 
                     return;
                 }

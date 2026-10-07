@@ -18,7 +18,6 @@
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType, NotFoundException } from '@zxing/library';
-import jsQR from 'jsqr';
 import api, { toError } from '../api.js';
 import { listen, startPolling, stopPolling } from '../realtime.js';
 import EmptyState from '../ui/EmptyState.vue';
@@ -33,7 +32,6 @@ const events = ref([]);
 const selectedEvent = ref(props.event_id ? Number(props.event_id) : null);
 const videoEl = ref(null);
 const scanning = ref(false);
-const decodingImage = ref(false);
 const cameraError = ref('');
 const manual = ref('');
 const result = ref(null);
@@ -161,7 +159,7 @@ function cameraMessage(err) {
     */
     if (isInsecure) {
         return 'La pagina no es HTTPS. iOS bloquea la camara en HTTP. '
-            + 'Usa el boton "Escanear desde una foto" abajo, o sirv el sitio por HTTPS (ngrok, cloudflared).';
+            + 'Sirve el sitio por HTTPS (ngrok, cloudflared) para poder escanear.';
     }
 
     if (name === 'NotAllowedError' || name === 'SecurityError') {
@@ -254,144 +252,6 @@ function manualSubmit() {
     manual.value = '';
 }
 
-/*
-| Fallback para iOS en HTTP: la camara en vivo exige HTTPS, pero un input file
-| con capture="environment" abre la camara nativa del telefono y devuelve la
-| foto. La decodificacion va al cliente.
-|
-| jsQR (https://github.com/cozmo/jsQR) le gana por mucho a ZXing en fotos
-| estaticas: esta pensado para QR pequenos rodeados de ruido, que es lo que
-| pasa cuando el operador le saca una foto a una pantalla con el celu.
-| ZXing queda reservado al video en vivo.
-*/
-async function decodeImageFile(event) {
-    const file = event.target.files?.[0];
-
-    if (!file || !selectedEvent.value) {
-        return;
-    }
-
-    cameraError.value = '';
-    decodingImage.value = true;
-
-    try {
-        const url = URL.createObjectURL(file);
-        const img = await loadImage(url);
-        URL.revokeObjectURL(url);
-
-        /*
-        | Estrategia en cascada: probamos el centro (donde el operador
-        | apunto) y, si falla, recortes mas chicos que siguen centrados. El
-        | QR siempre esta en el centro geometrico de la captura.
-        |
-        | Tambien pasamos escalas a jsQR: es mas rapido y robusto con
-        | imagenes chicas (el operador acerco el celu). Las pruebas se hacen
-        | en orden de "mejor caso" primero para salir rapido cuando hay senal
-        | clara.
-        */
-        const candidates = [
-            { ratio: 1.0, scale: 1.0 },
-            { ratio: 0.85, scale: 1.0 },
-            { ratio: 0.85, scale: 1.5 },
-            { ratio: 0.6, scale: 1.0 },
-            { ratio: 0.6, scale: 1.8 },
-            { ratio: 0.4, scale: 2.0 },
-            { ratio: 0.3, scale: 2.5 },
-        ];
-
-        for (const cand of candidates) {
-            const pixels = extractPixels(img, cand.ratio, cand.scale);
-
-            if (! pixels) {
-                continue;
-            }
-
-            const result = jsQR(
-                pixels.data,
-                pixels.width,
-                pixels.height,
-                {
-                    inversionAttempts: 'attemptBoth',
-                }
-            );
-
-            if (result && result.data) {
-                handlePayload(result.data);
-
-                return;
-            }
-        }
-
-        cameraError.value = 'No se encontro el QR. '
-            + 'Asegurate de que el QR este centrado en la foto, con buena luz y '
-            + 'que la imagen no este borrosa. Si el problema sigue, proba con '
-            + 'HTTPS (ngrok) para usar la camara en vivo.';
-    } catch (err) {
-        cameraError.value = err?.message || 'No se pudo leer la imagen.';
-    } finally {
-        decodingImage.value = false;
-        event.target.value = '';
-    }
-}
-
-function loadImage(url) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
-        img.src = url;
-    });
-}
-
-/*
-| Extrae los pixeles del centro geometrico de la imagen al tamano pedido
-| (ratio < 1) y, si scale > 1, los reescala al doble/triple para que jsQR
-| los lea mejor cuando el operador acerco mucho el celu.
-|
-| jsQR quiere un Uint8ClampedArray de RGBA y las dimensiones. Eso es
-| exactamente lo que devuelve getImageData sobre un canvas.
-*/
-function extractPixels(img, ratio, scale) {
-    const w = img.naturalWidth || img.width;
-    const h = img.naturalHeight || img.height;
-
-    if (! w || ! h) {
-        return null;
-    }
-
-    let cropW = w;
-    let cropH = h;
-
-    if (ratio < 1) {
-        cropW = Math.max(64, Math.round(w * ratio));
-        cropH = Math.max(64, Math.round(h * ratio));
-    }
-
-    const left = Math.round((w - cropW) / 2);
-    const top = Math.round((h - cropH) / 2);
-
-    const targetW = Math.round(cropW * scale);
-    const targetH = Math.round(cropH * scale);
-
-    const canvas = document.createElement('canvas');
-
-    canvas.width = targetW;
-    canvas.height = targetH;
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-
-    if (! ctx) {
-        return null;
-    }
-
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, left, top, cropW, cropH, 0, 0, targetW, targetH);
-
-    return ctx.getImageData(0, 0, targetW, targetH);
-}
-
 /**
  * Cambiar de evento corta la camara: el QR de un evento no debe validarse
  * contra otro, y dejarlo corrido escaneando con el evento anterior guardado
@@ -478,20 +338,6 @@ onBeforeUnmount(() => {
             <p v-if="cameraError" class="small mt-3 mb-2" style="color: var(--et-danger)">
                 <i class="bi bi-exclamation-triangle me-1"></i>{{ cameraError }}
             </p>
-
-            <label class="btn btn-et-ghost btn-sm w-100" :class="{ disabled: decodingImage || !selectedEvent }">
-                <span v-if="decodingImage" class="spinner-border spinner-border-sm me-1"></span>
-                <i v-else class="bi bi-camera me-1"></i>
-                {{ decodingImage ? 'Leyendo foto...' : 'Escanear desde una foto' }}
-                <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    class="d-none"
-                    :disabled="!selectedEvent || decodingImage"
-                    @change="decodeImageFile"
-                >
-            </label>
         </div>
 
         <div class="scanner__grid">

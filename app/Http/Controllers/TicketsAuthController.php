@@ -171,10 +171,8 @@ class TicketsAuthController extends Controller
             // que despues el servidor responde con 403.
             'role' => $user->isCashier() ? User::ROLE_CASHIER : User::ROLE_ADMIN,
             'routes' => $user->allowedPanelRoutes(),
-            // El frontend lo necesita para saber si tiene que encasquetar la
-            // pantalla de cambio de contrasena: con el flag en la base pero no
-            // en la respuesta, un F5 dejaba al admin en una pantalla que el
-            // servidor bloquea con 428.
+            // Solo aviso (la contrasena temporal sigue vigente hasta que el
+            // usuario la cambie); ya no bloquea el panel.
             'must_change_password' => (bool) $user->must_change_password,
         ];
     }

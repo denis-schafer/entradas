@@ -191,8 +191,7 @@ async function submitEditor() {
             | Cambio de password opcional en edicion: si los dos inputs quedaron
             | vacios no se manda nada y la contrasena actual queda intacta. Si
             | el operador escribio algo, se valida que coincidan y se manda al
-            | backend, que ademas marca must_change_password para forzar el
-            | cambio al proximo ingreso.
+            | backend, que ademas la marca como temporal (aviso en el listado).
             */
             const passwordFields = {};
 
@@ -408,7 +407,7 @@ onMounted(load);
                                 <span v-if="row.enable" class="et-badge et-badge--success">Activo</span>
                                 <span v-else class="et-badge et-badge--muted">Inactivo</span>
                                 <div v-if="row.must_change_password" class="small text-faint mt-1">
-                                    Debe cambiar contrasena
+                                    Contrasena temporal
                                 </div>
                             </td>
                             <td class="text-end">

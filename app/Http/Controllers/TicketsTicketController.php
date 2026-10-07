@@ -86,6 +86,10 @@ class TicketsTicketController extends Controller
      * Entrega manual de una pulsera. No cambia el estado del boleto: solo
      * marca que ya se entrego la pulsera, para que el personal de puerta no
      * entregue dos veces.
+     *
+     * La entrega y la revertida son dos cosas distintas: entregar vale
+     * siempre, pero quitar la pulsera de una entrada ya usada no, porque a
+     * esa altura la pulsera acompana a la persona que ya paso por la puerta.
      */
     public function giveWristband(Request $request, int $id): JsonResponse
     {
@@ -95,9 +99,17 @@ class TicketsTicketController extends Controller
             return response()->json(['message' => 'Entrada no encontrada'], 404);
         }
 
+        $give = $request->boolean('give', true);
+
+        if (! $give && $ticket->status === 'used') {
+            return response()->json([
+                'message' => 'No se puede quitar la pulsera de una entrada ya usada',
+            ], 422);
+        }
+
         $data = ['wristband_given' => ! $ticket->wristband_given, 'updated_at' => now()];
 
-        if ($request->boolean('give', true)) {
+        if ($give) {
             $data['wristband_given'] = true;
             $data['wristband_color'] = $request->input('wristband_color')
                 ?? DB::table('tickets_event_ticket_types')->where('id', $ticket->ticket_type_id)->value('wristband_color');
