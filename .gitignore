@@ -25,4 +25,4 @@ Homestead.yaml
 Thumbs.db
 /build
 /dist
-/ecosystem.config.js
+/ecosystem.config.cjs
