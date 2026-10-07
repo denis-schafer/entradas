@@ -22,6 +22,8 @@ class TicketsConfigController extends Controller
      */
     private const SECRETS = [
         'qr_secret',
+        'mp_access_token',
+        'mp_webhook_secret',
     ];
 
     /**
@@ -248,19 +250,44 @@ class TicketsConfigController extends Controller
     }
 
     /**
-     * Verifica que el access_token pasado por query sirva para llamar a la API
-     * de MP. Distingue token invalido/expirado de un error de red.
+     * Verifica que un access_token sirva para llamar a la API de MP.
+     * Distingue token invalido/expirado de un error de red.
      *
-     * El token se pasa por query porque el operador lo testea ANTES de
-     * guardarlo en el evento (paste + Probar + Guardar).
+     * Dos modos:
+     *   - token: el operador lo testea ANTES de guardarlo (paste + Probar).
+     *   - event_id: prueba el token ya guardado en el evento. Tras el OAuth
+     *     el input del frontend queda vacio (el backend enmascara el token
+     *     como __set__), asi que sin este modo no hay forma de validar el
+     *     token conectado.
+     *
+     * Va por POST para que el token no quede en la URL ni en los logs.
      */
     public function testMpToken(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'token' => 'required|string|max:255',
+            'token' => 'nullable|string|max:255',
+            'event_id' => 'nullable|integer',
         ]);
 
-        $accessToken = $data['token'];
+        $source = 'provided';
+        $accessToken = trim((string) ($data['token'] ?? ''));
+
+        if ($accessToken === '') {
+            $eventId = (int) ($data['event_id'] ?? 0);
+
+            if (! $eventId) {
+                return response()->json(['message' => 'Falta token o event_id'], 422);
+            }
+
+            $event = DB::table('tickets_events')->where('id', $eventId)->first(['mp_access_token']);
+            $accessToken = trim((string) ($event?->mp_access_token ?? ''));
+
+            if ($accessToken === '') {
+                return response()->json(['message' => 'El evento no tiene token guardado'], 422);
+            }
+
+            $source = 'stored';
+        }
 
         try {
             // /v1/payment_methods es GET, publico y solo requiere auth valida.
@@ -288,6 +315,7 @@ class TicketsConfigController extends Controller
                     'status' => $response->status(),
                     'message' => $detail.(empty($codes) ? '' : ' | '.implode(' | ', $codes)),
                     'token_prefix' => substr($accessToken, 0, 12).'...',
+                    'source' => $source,
                 ]);
             }
 
@@ -295,12 +323,14 @@ class TicketsConfigController extends Controller
                 'ok' => true,
                 'message' => 'Token operativo. MP respondio '.$response->status().'.',
                 'token_prefix' => substr($accessToken, 0, 12).'...',
+                'source' => $source,
             ]);
         } catch (\Throwable $e) {
             return response()->json([
                 'ok' => false,
                 'message' => 'Error de red: '.$e->getMessage(),
                 'token_prefix' => substr($accessToken, 0, 12).'...',
+                'source' => $source,
             ]);
         }
     }

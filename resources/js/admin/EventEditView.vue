@@ -271,14 +271,17 @@ async function connectMp() {
 }
 
 /*
- * Llama a MP con el access_token que esta en el input. Sirve para iterar
- * sin guardar: si falla, no perdi el valor real todavia. Cuando guarda el
- * evento, el token queda persistido.
+ * Llama a MP con el access_token del input si hay uno escrito: sirve para
+ * iterar sin guardar (si falla, no perdi el valor real todavia). Si el
+ * input esta vacio, prueba el token ya guardado en el evento, que es el
+ * caso normal tras el OAuth (el backend enmascara el token como __set__
+ * y el input queda limpio).
  */
 async function testEventMp() {
     const token = form.mp_access_token?.trim();
+    const useStored = !token && mpConnected.value;
 
-    if (!token) {
+    if (!token && !useStored) {
         toast('Pega un Access token antes de probar.', 'warning');
 
         return;
@@ -287,14 +290,17 @@ async function testEventMp() {
     testingEventMp.value = true;
 
     try {
-        const { data } = await api.get('tickets-admin/config/mp-test', {
-            params: { token },
-        });
+        const { data } = await api.post(
+            'tickets-admin/config/mp-test',
+            token ? { token } : { event_id: Number(props.id) },
+        );
+
+        const origin = data.source === 'stored' ? 'Token guardado del evento' : 'Token pegado';
 
         if (data.ok) {
-            toast(`Token operativo (${data.token_prefix}). MP respondio correctamente.`, 'success');
+            toast(`${origin} operativo (${data.token_prefix}). MP respondio correctamente.`, 'success');
         } else {
-            toast(`Fallo (${data.token_prefix}): ${data.message}`, 'danger');
+            toast(`${origin} fallo (${data.token_prefix}): ${data.message}`, 'danger');
         }
     } catch (err) {
         toast(toError(err).message, 'danger');

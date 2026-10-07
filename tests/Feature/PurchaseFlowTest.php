@@ -479,19 +479,6 @@ class PurchaseFlowTest extends TestCase
  * confirmar el pago contra la API de MercadoPago, y dar por pagado un payload
  * que no se pudo verificar seria peor que ignorarlo.
  */
-private function fakeMercadoPagoToken(): void
-{
-    DB::table('tickets_configs')->updateOrInsert(
-        ['name' => 'mp_access_token'],
-        [
-            'value' => 'APP_USR-token-de-prueba',
-            'type' => 'text',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]
-    );
-}
-
 public function test_webhook_sin_token_configurado_no_confirma_el_pago(): void
 {
     [$admin, $eventId, $typeId] = $this->publishEvent();
@@ -506,7 +493,7 @@ public function test_webhook_sin_token_configurado_no_confirma_el_pago(): void
 
     // Sin token configurado responde ok para que MercadoPago no reintente en
     // bucle, pero la orden sigue pendiente.
-    $this->postJson('/tickets/mp/webhook', [
+    $this->postJson("/tickets/mp/webhook/{$eventId}", [
         'type' => 'payment',
         'data' => ['id' => '555'],
     ])->assertOk();
@@ -524,7 +511,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
     ])->json();
 
-    $this->fakeMercadoPagoToken();
+    $this->fakeMercadoPagoToken($eventId);
 
         // La firma solo se exige si hay mp_webhook_secret configurado.
         Http::fake([
@@ -542,7 +529,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
             'data' => ['id' => '999888777'],
         ];
 
-        $this->postJson('/tickets/mp/webhook', $payload)->assertOk();
+        $this->postJson("/tickets/mp/webhook/{$eventId}", $payload)->assertOk();
 
         $row = DB::table('tickets_orders')->where('id', $order['order_id'])->first();
         $this->assertSame('paid', $row->status);
@@ -551,8 +538,20 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
 
         // Reentrega: el estado no cambia ni se pisa paid_at.
         $paidAt = $row->paid_at;
-        $this->postJson('/tickets/mp/webhook', $payload)->assertOk();
+        $this->postJson("/tickets/mp/webhook/{$eventId}", $payload)->assertOk();
         $this->assertSame($paidAt, DB::table('tickets_orders')->where('id', $order['order_id'])->value('paid_at'));
+    }
+
+    /**
+     * El token de MP es por evento: cada preference se crea con el
+     * access_token del evento y el webhook lo lee de la misma fila para
+     * verificar el pago contra la API.
+     */
+    private function fakeMercadoPagoToken(int $eventId): void
+    {
+        DB::table('tickets_events')->where('id', $eventId)->update([
+            'mp_access_token' => 'APP_USR-token-de-prueba',
+        ]);
     }
 
     public function test_webhook_rechaza_pago_no_aprobado(): void
@@ -565,7 +564,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
             'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
         ])->json();
 
-        $this->fakeMercadoPagoToken();
+        $this->fakeMercadoPagoToken($eventId);
 
         Http::fake([
             'api.mercadopago.com/v1/payments/*' => Http::response([
@@ -574,7 +573,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
             ]),
         ]);
 
-        $this->postJson('/tickets/mp/webhook', [
+        $this->postJson("/tickets/mp/webhook/{$eventId}", [
             'type' => 'payment',
             'data' => ['id' => '123'],
         ])->assertOk();
@@ -982,6 +981,43 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         ])->assertOk();
 
         $this->assertSame('secreto-original', DB::table('tickets_configs')->where('name', 'qr_secret')->value('value'));
+    }
+
+    /**
+     * El boton "Probar" de la edicion del evento tiene dos caminos: el token
+     * pegado a mano (el texto del input manda) y el token ya guardado por
+     * OAuth (input vacio). Tras el OAuth el backend enmascara el token, asi
+     * que sin el modo event_id no habria forma de validar la cuenta conectada.
+     */
+    public function test_probar_token_prueba_el_guardado_si_el_input_vacio(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+
+        Http::fake([
+            'api.mercadopago.com/v1/payment_methods' => Http::response(['visible_payment_methods' => []]),
+        ]);
+
+        // Sin nada que probar: falta token y event_id.
+        $this->actingAs($admin)->postJson('/tickets-admin/config/mp-test', [])->assertStatus(422);
+
+        // event_id pero el evento todavia no tiene token guardado.
+        $this->actingAs($admin)->postJson('/tickets-admin/config/mp-test', [
+            'event_id' => $eventId,
+        ])->assertStatus(422);
+
+        DB::table('tickets_events')->where('id', $eventId)->update([
+            'mp_access_token' => 'APP_USR-token-guardado',
+        ]);
+
+        // Input vacio: prueba el token guardado en el evento (caso OAuth).
+        $this->actingAs($admin)->postJson('/tickets-admin/config/mp-test', [
+            'event_id' => $eventId,
+        ])->assertOk()->assertJson(['ok' => true, 'source' => 'stored']);
+
+        // Con token en el body: manda el pegado a mano (caso pre-guardado).
+        $this->actingAs($admin)->postJson('/tickets-admin/config/mp-test', [
+            'token' => 'APP_USR-pegado-a-mano',
+        ])->assertOk()->assertJson(['ok' => true, 'source' => 'provided']);
     }
 
     /**
