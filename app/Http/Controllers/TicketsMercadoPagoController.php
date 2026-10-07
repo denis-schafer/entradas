@@ -7,6 +7,7 @@ use App\Services\Realtime;
 use App\Support\QrPayload;
 use App\Support\QrRenderer;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -224,19 +225,20 @@ try {
     }
 
     /**
-     * Destino del comprador cuando vuelve de MercadoPago.
+     * Destino del comprador cuando vuelve de MercadoPago (back_urls).
      *
-     * La URL de retorno es la raiz pelada, sin query y sin fragment: la app se
-     * sirve siempre en http://entradas.test y no usa vue-router, asi que
-     * cualquier parametro ahi seria ruido que el usuario ve y que ademas queda
-     * registrado en los logs del proxy.
+     * MercadoPago redirige aca con toda la query del pago (payment_id,
+     * status, external_reference...). La app no usa vue-router: ese query
+     * seria ruido en la barra del comprador y ademas queda registrado en los
+     * logs del proxy, asi que se registra todo en el log del servidor y se
+     * redirige a la raiz pelada, sin query y sin fragment.
      *
      * La orden NO viaja en la URL. El frontend la resuelve solo: guardó el
      * order_id y el public_token en sessionStorage antes de abrir el checkout,
      * y sessionStorage sobrevive el ida y vuelta a mercadopago.com en la misma
      * pestana. Por eso aca no hace falta pasarle nada.
      */
-    public function callback(Request $request): JsonResponse
+    public function callback(Request $request): RedirectResponse
     {
         // MercadoPago devuelve preference_id y order_id como parametros de
         // query. Se resuelven igual para poder distinguir "volvio por una orden
