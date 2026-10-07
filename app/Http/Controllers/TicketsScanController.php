@@ -1,0 +1,233 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Services\Realtime;
+use App\Support\QrPayload;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+class TicketsScanController extends Controller
+{
+    public function scan(Request $request): JsonResponse
+    {
+        $scanner = $request->user();
+
+        $validated = $request->validate([
+            'qr_payload' => 'required|string',
+            'event_id' => 'required|integer',
+        ]);
+
+        $eventId = (int) $validated['event_id'];
+
+        // QrPayload::secret() crea el secreto si falta. Es la garantia de que
+        // "Sistema sin configurar" no aparece nunca: si hay boletos emitidos,
+        // el secreto tiene que existir, y si no hay ninguno todavia, todavia
+        // no hay nada legitimo que escanear.
+        $secret = QrPayload::secret();
+
+        $payload = QrPayload::verify($validated['qr_payload'], $secret);
+
+        if (! $payload) {
+            // No se registra escaneo: un QR mal formado o con firma invalida
+            // puede ser cualquier cosa, no un intento de acceso atribuible.
+            return response()->json([
+                'result' => 'invalid',
+                'message' => 'QR no valido',
+            ]);
+        }
+
+        $ticket = DB::table('tickets_tickets')
+            ->leftJoin('tickets_event_ticket_types as tt', 'tickets_tickets.ticket_type_id', '=', 'tt.id')
+            ->leftJoin('tickets_orders as o', 'tickets_tickets.order_id', '=', 'o.id')
+            ->where('tickets_tickets.uuid', $payload['uuid'])
+            ->select([
+                'tickets_tickets.*',
+                'tt.name as type_name',
+                'tt.wristband_color as type_wristband_color',
+                'tt.wristband_label',
+                'o.buyer_name', 'o.status as order_status',
+            ])
+            ->first();
+
+        if (! $ticket) {
+            return $this->log($eventId, null, 'invalid', 'UUID no encontrado', [
+                'result' => 'invalid',
+                'message' => 'Entrada no encontrada',
+            ]);
+        }
+
+        if ((int) $ticket->event_id !== $eventId) {
+            return $this->log($eventId, (int) $ticket->id, 'wrong_event', null, [
+                'result' => 'wrong_event',
+                'message' => 'Esta entrada es para otro evento',
+            ]);
+        }
+
+        if ($ticket->order_status !== 'paid') {
+            return $this->log($eventId, (int) $ticket->id, 'invalid', 'Orden no pagada', [
+                'result' => 'invalid',
+                'message' => 'La entrada no esta pagada',
+            ]);
+        }
+
+        if ($ticket->status === 'cancelled') {
+            return $this->log($eventId, (int) $ticket->id, 'invalid', 'Cancelada', [
+                'result' => 'invalid',
+                'message' => 'Entrada cancelada',
+            ]);
+        }
+
+        $wristband = [
+            'color' => $ticket->type_wristband_color ?? null,
+            'label' => $ticket->wristband_label ?? null,
+        ];
+
+        if ($ticket->status === 'used') {
+            return $this->log($eventId, (int) $ticket->id, 'used', null, [
+                'result' => 'used',
+                'message' => 'Esta entrada ya fue utilizada',
+                'ticket' => [
+                    'id' => $ticket->id,
+                    'type_name' => $ticket->type_name,
+                    'buyer_name' => $ticket->buyer_name,
+                    'used_at' => $ticket->used_at,
+                ],
+                'wristband_color' => $wristband['color'],
+                'wristband_label' => $wristband['label'],
+            ]);
+        }
+
+        try {
+            DB::transaction(function () use ($ticket, $scanner, $wristband) {
+                /*
+                | El where('status', 'valid') es lo que hace de cerrojo: si dos
+                | puertas leen el mismo QR a la vez, solo una actualiza y la otra
+                | tiene que tomarse el camino de "ya usada". Sin esa condicion,
+                | las dos marcaban used y la segunda entrada pasaba sin detectar
+                | el reuso.
+                */
+                $claimed = DB::table('tickets_tickets')
+                    ->where('id', $ticket->id)
+                    ->where('status', 'valid')
+                    ->update([
+                        'status' => 'used',
+                        'used_at' => now(),
+                        'used_by_scanner_id' => $scanner?->id,
+                        'wristband_given' => true,
+                        'wristband_color' => $wristband['color'],
+                        'updated_at' => now(),
+                    ]);
+
+                if (! $claimed) {
+                    throw ValidationException::withMessages([
+                        'qr_payload' => 'Esta entrada ya fue utilizada',
+                    ]);
+                }
+
+                DB::table('tickets_scans')->insert([
+                    'ticket_id' => $ticket->id,
+                    'event_id' => $ticket->event_id,
+                    'scanner_user_id' => $scanner?->id,
+                    'scanned_at' => now(),
+                    'result' => 'valid',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            });
+        } catch (ValidationException $e) {
+            // Perdimos la carrera por el boleto: la respuesta tiene que ser la
+            // misma que da el chequeo de "used" de arriba, incluido el escaneo
+            // registrado, para que el historial cuente los dos intentos.
+            $fresh = DB::table('tickets_tickets')->where('id', $ticket->id)->first();
+
+            return $this->log($eventId, (int) $ticket->id, 'used', $e->getMessage(), [
+                'result' => 'used',
+                'message' => 'Esta entrada ya fue utilizada',
+                'ticket' => [
+                    'id' => $ticket->id,
+                    'type_name' => $ticket->type_name,
+                    'buyer_name' => $ticket->buyer_name,
+                    'used_at' => $fresh?->used_at ?? null,
+                ],
+                'wristband_color' => $wristband['color'],
+                'wristband_label' => $wristband['label'],
+            ]);
+        }
+
+        $eventName = DB::table('tickets_events')->where('id', $eventId)->value('name');
+
+        Realtime::scanned($eventId, (int) $ticket->id, 'valid', $eventName, $ticket->type_name);
+
+        return response()->json([
+            'result' => 'valid',
+            'message' => 'Entrada valida',
+            'ticket' => [
+                'id' => $ticket->id,
+                'type_name' => $ticket->type_name,
+                'buyer_name' => $ticket->buyer_name,
+            ],
+            'wristband_color' => $wristband['color'],
+            'wristband_label' => $wristband['label'],
+        ]);
+    }
+
+    /**
+     * Listado de escaneos, para la seccion Escaneos del panel.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $query = DB::table('tickets_scans as s')
+            ->leftJoin('tickets_events as e', 's.event_id', '=', 'e.id')
+            ->leftJoin('users as u', 's.scanner_user_id', '=', 'u.id')
+            ->leftJoin('tickets_tickets as t', 's.ticket_id', '=', 't.id')
+            ->leftJoin('tickets_event_ticket_types as tt', 't.ticket_type_id', '=', 'tt.id')
+            ->select([
+                's.id', 's.ticket_id', 's.event_id', 's.scanned_at', 's.result', 's.notes',
+                'e.name as event_name',
+                'u.name as scanner_name',
+                'tt.name as ticket_type_name',
+            ]);
+
+        if ($eventId = $request->query('event_id')) {
+            $query->where('s.event_id', (int) $eventId);
+        }
+
+        if ($result = $request->query('result')) {
+            $query->where('s.result', $result);
+        }
+
+        return response()->json($query->orderByDesc('s.id')->paginate(30));
+    }
+
+    /**
+* Registra el escaneo y devuelve la respuesta al lector. Los escaneos con
+     * ticket_id nulo son los que no corresponden a ningun boleto.
+     */
+    private function log(
+        int $eventId,
+        ?int $ticketId,
+        string $result,
+        ?string $notes,
+        array $response,
+    ): JsonResponse {
+        DB::table('tickets_scans')->insert([
+            'ticket_id' => $ticketId,
+            'event_id' => $eventId,
+            'scanner_user_id' => request()->user()?->id,
+            'scanned_at' => now(),
+            'result' => $result,
+            'notes' => $notes,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $eventName = DB::table('tickets_events')->where('id', $eventId)->value('name');
+
+        Realtime::scanned($eventId, $ticketId, $result, $eventName);
+
+        return response()->json($response);
+    }
+}

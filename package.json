@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json.schemastore.org/package.json",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build"
+    },
+    "devDependencies": {
+        "@vitejs/plugin-vue": "^6.0.5",
+        "laravel-vite-plugin": "^2.0.0",
+        "sass": "^1.99.0",
+        "vite": "^7.0.7"
+    },
+    "dependencies": {
+        "@zxing/browser": "^0.2.1",
+        "@zxing/library": "^0.23.0",
+        "axios": "^1.14.0",
+        "bootstrap": "^5.3.8",
+        "bootstrap-icons": "^1.11.3",
+        "chart.js": "^4.4.0",
+        "jsqr": "^1.4.0",
+        "laravel-echo": "^1.16.1",
+        "pusher-js": "^8.5.0",
+        "vue": "^3.5.32",
+        "vue-chartjs": "^5.3.0",
+        "vue3-toastify": "^0.2.9"
+    }
+}

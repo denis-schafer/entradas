@@ -1,0 +1,480 @@
+/*
+|--------------------------------------------------------------------------
+| Base
+|--------------------------------------------------------------------------
+*/
+
+@use 'tokens';
+
+@import 'bootstrap/scss/bootstrap';
+
+// Bootstrap Icons entra desde app.js, no desde aca. Importado por Sass, el
+// url() de la fuente queda "./fonts/bootstrap-icons.woff2" tal cual y Vite lo
+// deja sin resolver: el CSS compilado vive en public/build/assets/, entonces
+// el navegador pedia /build/assets/fonts/... que no existe y ningun icono se
+// veia. Si lo importa el pipeline de Vite, la fuente se emite con su hash y la
+// URL correcta. Ver resources/js/app.js.
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+}
+
+body {
+    font-family: var(--et-font-sans);
+    background: var(--et-bg);
+    color: var(--et-text);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+// ---------------------------------------------------------------- Pantalla de arranque
+/*
+| Lo que se ve entre que se descarga el bundle y monta Vue. Si algo falla al
+| arrancar, el usuario se queda mirando esto con un mensaje y no con un
+| espacio en blanco.
+*/
+.boot {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 1.25rem;
+    background: #0a0a0f;
+    color: #9a9ab0;
+    font-family: var(--et-font-sans);
+}
+
+.boot__mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #7c5cff, #ff3d71);
+    animation: boot-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes boot-pulse {
+    0%,
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(0.82);
+        opacity: 0.55;
+    }
+}
+
+// ---------------------------------------------------------------- Tipografia y utilidades
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+a {
+    text-decoration: none;
+    transition: color var(--et-transition);
+}
+
+.text-muted-2 {
+    color: var(--et-text-muted) !important;
+}
+
+.text-faint {
+    color: var(--et-text-faint) !important;
+}
+
+.numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+}
+
+// ---------------------------------------------------------------- Superficies
+.et-surface {
+    background: var(--et-surface);
+    border: 1px solid var(--et-border);
+    border-radius: var(--et-radius);
+}
+
+.et-surface-raised {
+    background: var(--et-bg-elevated);
+    border: 1px solid var(--et-border);
+    border-radius: var(--et-radius);
+    box-shadow: var(--et-shadow-sm);
+}
+
+// ---------------------------------------------------------------- Botones
+.btn {
+    --bs-btn-padding-y: 0.5rem;
+    --bs-btn-padding-x: 1rem;
+    --bs-btn-font-weight: 600;
+    --bs-btn-border-radius: var(--et-radius-sm);
+    transition: transform var(--et-transition), background-color var(--et-transition), border-color var(--et-transition), opacity var(--et-transition);
+
+    &:active {
+        transform: translateY(1px);
+    }
+
+    &:disabled,
+    &.disabled {
+        opacity: 0.5;
+    }
+}
+
+.btn-et-primary {
+    --bs-btn-color: var(--et-primary-contrast);
+    --bs-btn-bg: var(--et-primary);
+    --bs-btn-border-color: var(--et-primary);
+    --bs-btn-hover-color: var(--et-primary-contrast);
+    --bs-btn-hover-bg: var(--et-primary-hover);
+    --bs-btn-hover-border-color: var(--et-primary-hover);
+    --bs-btn-active-color: var(--et-primary-contrast);
+    --bs-btn-active-bg: var(--et-primary-hover);
+    --bs-btn-active-border-color: var(--et-primary-hover);
+    --bs-btn-disabled-color: var(--et-primary-contrast);
+    --bs-btn-disabled-bg: var(--et-primary);
+    --bs-btn-disabled-border-color: var(--et-primary);
+}
+
+.btn-et-ghost {
+    --bs-btn-color: var(--et-text);
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: var(--et-border-strong);
+    --bs-btn-hover-color: var(--et-text);
+    --bs-btn-hover-bg: var(--et-surface-hover);
+    --bs-btn-hover-border-color: var(--et-border-strong);
+    --bs-btn-active-color: var(--et-text);
+    --bs-btn-active-bg: var(--et-surface-hover);
+    --bs-btn-active-border-color: var(--et-border-strong);
+}
+
+/*
+| Boton destructivo de baja intensidad. Se usa donde la accion es real pero
+| no la principal de la pantalla (anular entrada, eliminar anuncio): el peso
+| visual bajo evita pedir confirmacion por reflejo en acciones irreversibles.
+*/
+.btn-danger-soft {
+    --bs-btn-color: var(--et-danger);
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: var(--et-danger);
+    --bs-btn-hover-bg: var(--et-danger-soft);
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-color: var(--et-danger);
+    --bs-btn-active-bg: var(--et-danger-soft);
+    --bs-btn-active-border-color: transparent;
+    --bs-btn-disabled-color: var(--et-danger);
+    --bs-btn-disabled-bg: transparent;
+}
+
+.btn-et-danger {
+    --bs-btn-color: var(--bs-btn-contrast);
+    --bs-btn-bg: transparent;
+    --bs-btn-border-color: var(--et-danger);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--et-danger);
+    --bs-btn-hover-border-color: var(--et-danger);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--et-danger);
+    --bs-btn-active-border-color: var(--et-danger);
+}
+
+// ---------------------------------------------------------------- Insignias de estado
+.et-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: var(--et-radius-pill);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+
+    &--success {
+        background: var(--et-success-soft);
+        color: var(--et-success);
+    }
+
+    &--warning {
+        background: var(--et-warning-soft);
+        color: var(--et-warning);
+    }
+
+    &--danger {
+        background: var(--et-danger-soft);
+        color: var(--et-danger);
+    }
+
+    &--info {
+        background: var(--et-primary-soft);
+        color: var(--et-info);
+    }
+
+    &--muted {
+        background: var(--et-surface-hover);
+        color: var(--et-text-muted);
+    }
+}
+
+// ---------------------------------------------------------------- Formularios
+.form-control,
+.form-select {
+    min-height: 2.6rem;
+}
+
+.form-label {
+    margin-bottom: 0.35rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--et-text-muted);
+}
+
+.form-text {
+    color: var(--et-text-faint);
+    font-size: 0.78rem;
+}
+
+.invalid-feedback {
+    display: block;
+    color: var(--et-danger);
+    font-size: 0.78rem;
+    margin-top: 0.3rem;
+}
+
+// ---------------------------------------------------------------- Tablas (panel)
+.et-table {
+    --bs-table-bg: transparent;
+    margin: 0;
+
+    th {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--et-text-faint);
+        border-bottom: 1px solid var(--et-border);
+        padding: 0.65rem 0.75rem;
+        white-space: nowrap;
+    }
+
+    td {
+        padding: 0.7rem 0.75rem;
+        vertical-align: middle;
+        border-bottom: 1px solid var(--et-border);
+    }
+
+    tbody tr {
+        transition: background-color var(--et-transition);
+    }
+
+    tbody tr:hover {
+        background: var(--et-surface-hover);
+    }
+}
+
+// ---------------------------------------------------------------- Realtime
+/*
+| Cuando llega un evento websocket el valor cambia delante del usuario. El
+| is-flashing marca la fila o la celda durante un instante para que el cambio
+| se vea aunque nadie estuviera mirando la pantalla.
+*/
+.is-flashing {
+    animation: et-flash 1.6s ease-out;
+}
+
+@keyframes et-flash {
+    0% {
+        background-color: var(--et-primary-soft);
+        box-shadow: inset 3px 0 0 var(--et-primary);
+    }
+
+    100% {
+        background-color: transparent;
+        box-shadow: inset 3px 0 0 transparent;
+    }
+}
+
+.is-flash-down {
+    animation: et-flash-down 1.6s ease-out;
+}
+
+@keyframes et-flash-down {
+    0% {
+        background-color: var(--et-danger-soft);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
+// ---------------------------------------------------------------- Movimiento de entrada
+.et-enter {
+    animation: et-enter var(--et-transition-slow) both;
+}
+
+@keyframes et-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .is-flashing,
+    .is-flash-down,
+    .et-enter,
+    .boot__mark {
+        animation: none;
+    }
+}
+
+// ---------------------------------------------------------------- Avisos
+/*
+| Aviso de resultado dentro del flujo (no toast, no error de pagina). Se queda
+| en el sitio donde se produjo la accion, que es donde el usuario mira despues.
+*/
+.et-alert {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 0.9rem;
+    border-radius: var(--et-radius-sm);
+    font-size: 0.85rem;
+    border: 1px solid transparent;
+    margin-bottom: 1rem;
+
+    &--success {
+        background: var(--et-success-soft);
+        color: var(--et-success);
+        border-color: var(--et-success-soft);
+    }
+
+    &--danger {
+        background: var(--et-danger-soft);
+        color: var(--et-danger);
+        border-color: var(--et-danger-soft);
+    }
+
+    &--warning {
+        background: var(--et-warning-soft);
+        color: var(--et-warning);
+        border-color: var(--et-warning-soft);
+    }
+}
+
+// ---------------------------------------------------------------- Tabs
+.tabbar {
+    display: inline-flex;
+    gap: 0.15rem;
+    padding: 0.2rem;
+    background: var(--et-surface-hover);
+    border-radius: var(--et-radius-sm);
+
+    &__item {
+        border: 0;
+        background: transparent;
+        color: var(--et-text-muted);
+        font-size: 0.85rem;
+        font-weight: 600;
+        padding: 0.4rem 0.85rem;
+        border-radius: calc(var(--et-radius-sm) - 2px);
+        transition: background-color var(--et-transition), color var(--et-transition);
+
+        &:hover {
+            color: var(--et-text);
+        }
+
+        &.is-active {
+            background: var(--et-bg-elevated);
+            color: var(--et-text);
+            box-shadow: var(--et-shadow-sm);
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Modales
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+    overflow-y: auto;
+    background: rgb(0 0 0 / 45%);
+}
+
+.modal-sheet {
+    width: min(520px, 100%);
+    background: var(--et-bg-elevated);
+    border: 1px solid var(--et-border);
+    border-radius: var(--et-radius);
+    box-shadow: var(--et-shadow-lg);
+    animation: et-enter var(--et-transition) both;
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.9rem 1.1rem;
+        border-bottom: 1px solid var(--et-border);
+    }
+
+    &__body {
+        padding: 1.1rem;
+    }
+
+    &__foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-top: 1.25rem;
+    }
+}
+
+// ---------------------------------------------------------------- Varios
+.et-scroll {
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--et-border-strong) transparent;
+}
+
+.et-divider {
+    height: 1px;
+    background: var(--et-border);
+    border: 0;
+    opacity: 1;
+}
+
+.cursor-pointer {
+    cursor: pointer;
+}
+
+@media print {
+    .no-print {
+        display: none !important;
+    }
+}

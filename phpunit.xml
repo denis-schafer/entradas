@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         cacheDirectory=".phpunit.cache">
+    <testsuites>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="CACHE_STORE" value="array"/>
+        <!-- array para que los tests no dependan de la cola ni de Reverb. -->
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <!--
+            RefreshDatabase corre migrate:fresh, o sea DROPEA tablas. Sin esta
+            linea los tests usaban la base de datos real de .env y cada corrida
+            se llevaba por delante el admin, la configuracion y los eventos que
+            hubiera. Ahora pegan contra entradas_testing, que se crea sola.
+        -->
+        <env name="DB_DATABASE" value="entradas_testing"/>
+    </php>
+</phpunit>

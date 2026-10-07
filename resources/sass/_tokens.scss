@@ -1,0 +1,182 @@
+/*
+|--------------------------------------------------------------------------
+| Tokens
+|--------------------------------------------------------------------------
+|
+| Bootstrap se usa como grilla, componentes y utilidades, pero los colores no
+| salen de su paleta por defecto: todo pasa por estas variables. Asi el portal
+| oscuro y el panel claro son el mismo sistema con dos temas, y cambiar la
+| identidad es cambiar una variable en vez de perseguir clases.
+|
+| El tema se elige por atributo en <html data-bs-theme="...">, no por una
+| clase en un contenedor: asi los componentes de Bootstrap reacts a los
+| cambios de tema sin trabajo extra.
+*/
+
+:root {
+    // ---- Tipografia
+    --et-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --et-font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+    --et-font-size-base: 0.9375rem;
+    --et-radius-sm: 8px;
+    --et-radius: 14px;
+    --et-radius-lg: 20px;
+    --et-radius-pill: 999px;
+
+    // ---- Espaciado y sombra, compartidos por los dos temas
+    --et-shell-max: 1240px;
+    --et-shadow-sm: 0 1px 2px rgb(0 0 0 / 8%);
+    --et-shadow: 0 6px 24px -8px rgb(0 0 0 / 24%);
+    --et-shadow-lg: 0 24px 60px -20px rgb(0 0 0 / 45%);
+
+    // ---- Movimiento. Se respeta --motion-safe para quien pidio menos
+    // movimiento: los cambios de estado dejan de animarse, no se rompen.
+    --et-transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+    --et-transition-slow: 320ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --et-transition: 0ms;
+        --et-transition-slow: 0ms;
+    }
+}
+
+// ---------------------------------------------------------------- PORTAL (oscuro)
+/*
+| El portal oscuro es el que vende: la pantalla de compra es la que quiere
+| retener la atencion. Fondo casi negro, violeta electrico como acento y rosa
+| para lo urgente (stock por agotarse, errores de pago).
+*/
+[data-bs-theme='dark'] {
+    --et-bg: #0a0a0f;
+    --et-bg-elevated: #12121a;
+    --et-surface: #16161f;
+    --et-surface-hover: #1d1d28;
+    --et-border: #26263a;
+    --et-border-strong: #34344d;
+
+    --et-text: #f2f2f7;
+    --et-text-muted: #9a9ab0;
+    --et-text-faint: #6b6b82;
+
+    --et-primary: #7c5cff;
+    --et-primary-hover: #8f74ff;
+    --et-primary-contrast: #ffffff;
+    --et-primary-soft: rgb(124 92 255 / 14%);
+
+    --et-accent: #ff3d71;
+    --et-accent-soft: rgb(255 61 113 / 14%);
+
+    --et-success: #2ed47a;
+    --et-success-soft: rgb(46 212 122 / 14%);
+    --et-warning: #ffb020;
+    --et-warning-soft: rgb(255 176 32 / 14%);
+    --et-danger: #ff4d5e;
+    --et-danger-soft: rgb(255 77 94 / 14%);
+    --et-info: #35b8ff;
+
+    color-scheme: dark;
+}
+
+// ---------------------------------------------------------------- PANEL (claro)
+/*
+| El panel lo usa el operador, varias horas seguidas, con muchos numeros y
+| tablas. Claro, sobrio y de alto contraste: acentos solo donde hay accion.
+*/
+[data-bs-theme='light'] {
+    --et-bg: #f6f7fb;
+    --et-bg-elevated: #ffffff;
+    --et-surface: #ffffff;
+    --et-surface-hover: #f0f2f8;
+    --et-border: #e2e5ef;
+    --et-border-strong: #c9cfe0;
+
+    --et-text: #14161f;
+    --et-text-muted: #5a6178;
+    --et-text-faint: #8b92a6;
+
+    --et-primary: #5b3df5;
+    --et-primary-hover: #4a2ee0;
+    --et-primary-contrast: #ffffff;
+    --et-primary-soft: rgb(91 61 245 / 9%);
+
+    --et-accent: #e01f5a;
+    --et-accent-soft: rgb(224 31 90 / 9%);
+
+    --et-success: #128a52;
+    --et-success-soft: rgb(18 138 82 / 10%);
+    --et-warning: #b26a00;
+    --et-warning-soft: rgb(178 106 0 / 12%);
+    --et-danger: #cf2338;
+    --et-danger-soft: rgb(207 35 56 / 10%);
+    --et-info: #0f6fb8;
+
+    color-scheme: light;
+}
+
+// ---------------------------------------------------------------- Puente a Bootstrap
+/*
+| Bootstrap lee sus propias variables. Reasignarlas aca es lo que hace que
+| data-bs-theme funcione con los dos temas sin una sola clase propia.
+*/
+[data-bs-theme] {
+    --bs-body-bg: var(--et-bg);
+    --bs-body-color: var(--et-text);
+    --bs-body-font-family: var(--et-font-sans);
+    --bs-body-font-size: var(--et-font-size-base);
+    --bs-border-color: var(--et-border);
+
+    --bs-primary: var(--et-primary);
+    --bs-primary-rgb: 124, 92, 255;
+    --bs-secondary-color: var(--et-text-muted);
+    --bs-tertiary-bg: var(--et-surface);
+
+    --bs-link-color: var(--et-primary);
+    --bs-link-hover-color: var(--et-primary-hover);
+
+    --bs-border-radius: var(--et-radius-sm);
+    --bs-border-radius-sm: 6px;
+    --bs-border-radius-lg: var(--et-radius);
+    --bs-border-radius-xl: var(--et-radius-lg);
+
+    --bs-emphasis-color: var(--et-text);
+
+    --bs-card-bg: var(--et-surface);
+    --bs-card-border-color: var(--et-border);
+    --bs-card-cap-bg: var(--et-bg-elevated);
+
+    --bs-modal-bg: var(--et-surface);
+    --bs-modal-border-color: var(--et-border);
+    --bs-modal-header-border-color: var(--et-border);
+
+    --bs-dropdown-bg: var(--et-surface);
+    --bs-dropdown-border-color: var(--et-border);
+    --bs-dropdown-link-color: var(--et-text);
+    --bs-dropdown-link-hover-bg: var(--et-surface-hover);
+
+    --bs-form-control-bg: var(--et-bg-elevated);
+    --bs-form-control-color: var(--et-text);
+    --bs-form-control-border-color: var(--et-border-strong);
+    --bs-form-control-focus-border-color: var(--et-primary);
+    --bs-form-control-focus-box-shadow: 0 0 0 0.2rem var(--et-primary-soft);
+    --bs-form-control-placeholder-color: var(--et-text-faint);
+
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--et-text);
+    --bs-table-border-color: var(--et-border);
+    --bs-table-hover-bg: var(--et-surface-hover);
+    --bs-table-striped-bg: var(--et-surface-hover);
+
+    --bs-nav-tabs-link-active-bg: var(--et-surface);
+    --bs-nav-tabs-link-active-color: var(--et-text);
+    --bs-nav-tabs-border-color: var(--et-border);
+    --bs-nav-link-color: var(--et-text-muted);
+    --bs-nav-link-hover-color: var(--et-text);
+
+    --bs-tooltip-bg: var(--et-surface);
+    --bs-tooltip-color: var(--et-text);
+
+    --bs-heading-color: var(--et-text);
+}
