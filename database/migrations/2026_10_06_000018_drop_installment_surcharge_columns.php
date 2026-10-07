@@ -22,31 +22,41 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('tickets_orders', function (Blueprint $table) {
-            $table->dropColumn([
-                'cash_price',
-                'installment_surcharge',
-                'installment_surcharge_pct',
-                'installment_unit_price',
-            ]);
-        });
+        $orders = array_filter([
+            'cash_price',
+            'installment_surcharge',
+            'installment_surcharge_pct',
+            'installment_unit_price',
+        ], fn (string $c) => Schema::hasColumn('tickets_orders', $c));
 
-        Schema::table('tickets_event_ticket_types', function (Blueprint $table) {
-            $table->dropColumn('installment_surcharge_pct');
-        });
+        if ($orders !== []) {
+            Schema::table('tickets_orders', function (Blueprint $table) use ($orders) {
+                $table->dropColumn($orders);
+            });
+        }
+
+        if (Schema::hasColumn('tickets_event_ticket_types', 'installment_surcharge_pct')) {
+            Schema::table('tickets_event_ticket_types', function (Blueprint $table) {
+                $table->dropColumn('installment_surcharge_pct');
+            });
+        }
     }
 
     public function down(): void
     {
-        Schema::table('tickets_event_ticket_types', function (Blueprint $table) {
-            $table->decimal('installment_surcharge_pct', 5, 2)->default(0)->after('max_installments');
-        });
+        if (! Schema::hasColumn('tickets_event_ticket_types', 'installment_surcharge_pct')) {
+            Schema::table('tickets_event_ticket_types', function (Blueprint $table) {
+                $table->decimal('installment_surcharge_pct', 5, 2)->default(0)->after('max_installments');
+            });
+        }
 
-        Schema::table('tickets_orders', function (Blueprint $table) {
-            $table->decimal('cash_price', 10, 2)->nullable()->after('total');
-            $table->decimal('installment_surcharge', 10, 2)->default(0)->after('cash_price');
-            $table->decimal('installment_surcharge_pct', 5, 2)->default(0)->after('installment_surcharge');
-            $table->decimal('installment_unit_price', 10, 2)->nullable()->after('installment_surcharge_pct');
-        });
+        if (! Schema::hasColumn('tickets_orders', 'cash_price')) {
+            Schema::table('tickets_orders', function (Blueprint $table) {
+                $table->decimal('cash_price', 10, 2)->nullable()->after('total');
+                $table->decimal('installment_surcharge', 10, 2)->default(0)->after('cash_price');
+                $table->decimal('installment_surcharge_pct', 5, 2)->default(0)->after('installment_surcharge');
+                $table->decimal('installment_unit_price', 10, 2)->nullable()->after('installment_surcharge_pct');
+            });
+        }
     }
 };
