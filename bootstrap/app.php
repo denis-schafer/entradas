@@ -18,11 +18,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'tickets.portal' => \App\Http\Middleware\TicketsPortalAuth::class,
         ]);
 
-        // MercadoPago notifica por POST a /tickets/mp/webhook y redirige por
-        // GET a /tickets/mp/callback. Ninguno de los dos lleva token de sesion,
-        // asi que quedan exentos de CSRF.
+        // MercadoPago notifica por POST a /tickets/mp/webhook/{event_id} y
+        // redirige por GET a /tickets/mp/callback. Ninguno de los dos lleva
+        // token de sesion, asi que quedan exentos de CSRF. OJO: el patron del
+        // webhook lleva el wildcard, porque la ruta tiene el event_id al final
+        // y sin el "/*" el patron exacto no matcheaba (MP recibia 419 y la
+        // orden quedaba pendiente aunque el pago estaba aprobado).
         $middleware->validateCsrfTokens(except: [
             'tickets/mp/webhook',
+            'tickets/mp/webhook/*',
             'tickets/mp/callback',
         ]);
     })
