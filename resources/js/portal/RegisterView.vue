@@ -180,7 +180,8 @@ async function submit() {
 
 <style scoped>
 .auth {
-    min-height: 62vh;
+    min-height: 100vh;
+    min-height: 100dvh;
     display: grid;
     place-items: center;
 }

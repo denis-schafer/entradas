@@ -420,7 +420,6 @@ a {
     inset: 0;
     z-index: 60;
     display: flex;
-    align-items: flex-start;
     justify-content: center;
     padding: 1.5rem 1rem;
     overflow-y: auto;
@@ -429,6 +428,7 @@ a {
 
 .modal-sheet {
     width: min(520px, 100%);
+    margin: auto;
     background: var(--et-bg-elevated);
     border: 1px solid var(--et-border);
     border-radius: var(--et-radius);
