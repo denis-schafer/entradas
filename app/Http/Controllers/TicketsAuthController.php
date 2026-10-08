@@ -138,6 +138,26 @@ class TicketsAuthController extends Controller
         ]);
     }
 
+    /**
+     * Renueva la sesion desde el aviso de "por vencer".
+     *
+     * Cualquier request desliza la cookie de sesion (StartSession la reencola
+     * con la ventana completa), asi que con responder 200 alcanza para que el
+     * contador del frontend vuelva a empezar. Si no hay usuario, 401: la sesion
+     * ya vencio y el frontend tiene que volver al login.
+     */
+    public function refreshSession(Request $request): JsonResponse
+    {
+        if (! $request->user()) {
+            return $this->fail('Sesion vencida.', 401);
+        }
+
+        return response()->json([
+            'message' => 'Sesion renovada.',
+            'expires_in' => (int) config('session.lifetime') * 60,
+        ]);
+    }
+
     public function changePassword(Request $request): JsonResponse
     {
         $user = $request->user();

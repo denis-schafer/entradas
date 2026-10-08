@@ -38,6 +38,6 @@ return Application::configure(basePath: dirname(__DIR__))
         // a "/" y el frontend recibia HTML donde esperaba el 422 con los
         // errores por campo.
         $exceptions->shouldRenderJsonWhen(
-            fn ($request) => $request->is('tickets*'),
+            fn ($request) => $request->is('tickets*') || $request->is('session*'),
         );
     })->create();

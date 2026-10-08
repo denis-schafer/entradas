@@ -54,6 +54,13 @@ Route::prefix('tickets/mp')->name('tickets.mp.')->group(function () {
 Route::post('tickets-auth/login', [TicketsAuthController::class, 'loginUnified'])
     ->name('tickets-auth.login');
 
+// ---------------------------------------------------------------- Sesion
+// Renueva la sesion desde el aviso de "por vencer" (ver sessionWatch.js).
+// Devuelve 401 si ya no hay usuario, para que el frontend caiga al login en vez
+// de fingir que la sesion sigue viva.
+Route::post('session/refresh', [TicketsAuthController::class, 'refreshSession'])
+    ->name('session.refresh');
+
 Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
     // Sesion. Fuera del grupo protegido a proposito: el login tiene que
     // funcionar justamente cuando no hay sesion, y /me tiene que poder

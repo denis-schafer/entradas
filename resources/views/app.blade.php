@@ -6,6 +6,9 @@
     {{-- El tema oscuro del portal y el claro del panel los decide el frontend
          segun que shell monte, no el servidor. --}}
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    {{-- Minutos de vida de la sesion. El frontend lo usa para avisar antes de
+         que Laravel la venza por inactividad (ver resources/js/sessionWatch.js). --}}
+    <meta name="session-lifetime" content="{{ (int) config('session.lifetime') }}">
     {{-- Credenciales de Reverb en base64. Van en la pagina a proposito: son las
          que el navegador necesita para conectarse al websocket, y son las
          publicas del protocolo. El secreto y el id de la app no salen de aca.

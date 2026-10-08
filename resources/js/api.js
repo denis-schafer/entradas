@@ -6,14 +6,19 @@
 | Un solo lugar donde se habla con el backend. Centralizarlo permite tres
 | cosas que si estan en cada pantalla se olvidan:
 |
-|   1. CSRF: se manda el token en todas las peticiones que no son GET.
+|   1. CSRF: el token viaja en la cookie XSRF-TOKEN, que Laravel renueva en
+|      cada respuesta (withXSRFToken). NO se copia el meta tag: el login y el
+|      logout regeneran el token en el servidor y el meta queda viejo, que era
+|      justo el origen del "CSRF token mismatch".
 |   2. Sesion: si el servidor responde 401, la app vuelve al login sola,
-|      sin que cada pantalla tenga que mirar el codigo de error.
+|      sin que cada pantalla tenga que mirar el codigo de error. Un 419 por
+|      sesion vencida se reintenta una vez con cookies frescas.
 |   3. Errores: se traduce el 422 de validacion a algo que se pueda pintar
 |      en el formulario sin adivinar la forma de la respuesta.
 */
 
 import axios from 'axios';
+import { touchSession } from './sessionWatch.js';
 
 const client = axios.create({
     baseURL: '/',
@@ -23,16 +28,6 @@ const client = axios.create({
         Accept: 'application/json',
         'X-Requested-With': 'XMLHttpRequest',
     },
-});
-
-client.interceptors.request.use((config) => {
-    const token = document.querySelector('meta[name="csrf-token"]')?.content;
-
-    if (token && config.method && config.method !== 'get') {
-        config.headers['X-CSRF-TOKEN'] = token;
-    }
-
-    return config;
 });
 
 /**
@@ -77,11 +72,75 @@ export function setUnauthorizedHandler(fn) {
     onUnauthorized = fn;
 }
 
+/*
+ * Recuperacion de 419 (CSRF token mismatch).
+ *
+ * La cookie XSRF-TOKEN se renueva en cada respuesta, asi que despues de un
+ * login deberia alcanzar. Si igual llega un 419 (sesion vencida en la pestaña),
+ * se pide "/" una vez para que el servidor emita cookie de sesion y XSRF
+ * nuevas, y se reintenta el request original con esas cookies. Si vuelve a
+ * fallar, se recarga la pagina una unica vez para no entrar en un loop.
+ */
+let bootstrapPromise = null;
+
+function bootstrapCsrf() {
+    if (!bootstrapPromise) {
+        bootstrapPromise = client
+            .get('/')
+            .catch(() => {})
+            .finally(() => {
+                bootstrapPromise = null;
+            });
+    }
+
+    return bootstrapPromise;
+}
+
+let reloading = false;
+
+function reloadOnce() {
+    if (reloading || sessionStorage.getItem('csrf-reloaded') === '1') {
+        return;
+    }
+
+    reloading = true;
+    sessionStorage.setItem('csrf-reloaded', '1');
+    window.location.reload();
+}
+
 client.interceptors.response.use(
-    (response) => response,
-    (error) => {
-        if (error.response?.status === 401) {
+    (response) => {
+        // Una respuesta buena confirma que la sesion sigue viva: se limpia el
+        // flag de recarga y se reinicia la cuenta regresiva del aviso.
+        sessionStorage.removeItem('csrf-reloaded');
+        touchSession();
+
+        return response;
+    },
+    async (error) => {
+        const status = error.response?.status;
+        const config = error.config;
+
+        if (error.response) {
+            touchSession();
+        }
+
+        if (status === 401) {
             onUnauthorized();
+
+            return Promise.reject(error);
+        }
+
+        if (status === 419 && config && !config.__csrfRetried) {
+            config.__csrfRetried = true;
+
+            await bootstrapCsrf();
+
+            return client.request(config);
+        }
+
+        if (status === 419) {
+            reloadOnce();
         }
 
         return Promise.reject(error);
@@ -111,7 +170,7 @@ export const api = {
     get: (url, params) => client.get(`${url}${buildQuery(params || {})}`),
     post: (url, data) => client.post(url, data),
     put: (url, data) => client.put(url, data),
-    patch: (url, data) => axios.patch(url, data),
+    patch: (url, data) => client.patch(url, data),
     delete: (url) => client.delete(url),
 };
 

@@ -564,7 +564,7 @@ onMounted(() => {
 
                     <div class="mb-3">
                         <label class="form-label" for="dni">DNI</label>
-                        <input id="dni" v-model="editor.dni" class="form-control numeric" maxlength="30" placeholder="29923360">
+                        <input id="dni" v-model="editor.dni" class="form-control numeric" maxlength="30" placeholder="10.222.333">
                         <div class="form-text">
                             Opcional. Si lo cargan, este operador puede entrar al panel tipeando DNI en vez de email.
                         </div>

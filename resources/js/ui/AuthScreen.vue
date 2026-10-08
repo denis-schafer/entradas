@@ -77,7 +77,7 @@ async function submit() {
                         autocomplete="username"
                         class="form-control"
                         :class="{ 'is-invalid': error }"
-                        placeholder="29923360"
+                        placeholder="10.222.333"
                     >
                     <div class="form-text">
                         El personal del evento ingresa con el email que le dio la

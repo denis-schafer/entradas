@@ -81,7 +81,11 @@ async function logout() {
         // Aunque el servidor no responda, la sesion local se cierra igual.
     }
 
+    // Recarga completa a proposito: el logout rota el token de CSRF en el
+    // servidor y el meta tag de esta pagina queda viejo. Recargar trae cookies
+    // y token frescos y evita el 419 en el proximo inicio de sesion.
     emit('logged-out');
+    window.location.reload();
 }
 
 onMounted(async () => {

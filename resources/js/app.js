@@ -3,8 +3,10 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import { createApp, defineComponent, ref, computed, onMounted, nextTick, h } from 'vue';
 import api, { setUnauthorizedHandler } from './api.js';
 import { initRealtime } from './realtime.js';
+import { startSessionWatch } from './sessionWatch.js';
 import { go, useRoute, defineRoutes, readPendingOrder } from './shell/router.js';
 import ToastHost from './ui/ToastHost.vue';
+import SessionCountdownModal from './ui/SessionCountdownModal.vue';
 import AuthScreen from './ui/AuthScreen.vue';
 import RegisterView from './portal/RegisterView.vue';
 import PortalShell from './shell/PortalShell.vue';
@@ -27,7 +29,7 @@ import AdminShell from './shell/AdminShell.vue';
  */
 const Root = defineComponent({
     name: 'Root',
-    components: { PortalShell, AdminShell, ToastHost, AuthScreen, RegisterView },
+    components: { PortalShell, AdminShell, ToastHost, SessionCountdownModal, AuthScreen, RegisterView },
     setup() {
         const loading = ref(true);
         const user = ref(null);
@@ -132,6 +134,27 @@ const Root = defineComponent({
         }
 
         /**
+         * Cierre de sesion desde el aviso de sesion por vencer. Se llama al
+         * endpoint del shell que corresponda y se recarga: el logout rota el
+         * token de CSRF en el servidor, asi que el meta tag de esta pagina
+         * queda viejo y recargar trae cookies y token frescos.
+         */
+        async function handleSignOut() {
+            const endpoint = user.value?.is_admin
+                ? 'tickets-admin/auth/logout'
+                : 'tickets-portal/api/auth/logout';
+
+            try {
+                await api.post(endpoint);
+            } catch {
+                // Aunque el servidor no responda, se recarga igual para limpiar
+                // el estado local.
+            }
+
+            window.location.reload();
+        }
+
+        /**
          * Limpia restos de bookmarks viejos que usaban #/mp-return en la URL.
          * La app ya no escribe fragmentos, pero dejarlo una vez no cuesta nada
          * y evita que un usuario con un link guardado vea la barra sucia.
@@ -144,6 +167,10 @@ const Root = defineComponent({
 
         onMounted(async () => {
             initRealtime();
+
+            // El aviso de "sesion por vencer" corre de fondo en toda la app;
+            // solo se muestra si queda poco tiempo (ver sessionWatch.js).
+            startSessionWatch();
 
             setUnauthorizedHandler(() => {
                 user.value = null;
@@ -206,6 +233,7 @@ const Root = defineComponent({
             handleLoggedIn,
             handleLoggedOut,
             handleNavigate,
+            handleSignOut,
         };
     },
     render() {
@@ -253,6 +281,7 @@ const Root = defineComponent({
                     onNavigate: this.handleNavigate,
                 }),
             h(ToastHost),
+            h(SessionCountdownModal, { onLogout: this.handleSignOut }),
         ]);
     },
 });
