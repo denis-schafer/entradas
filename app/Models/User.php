@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\DB;
 
 class User extends Authenticatable
 {
@@ -123,5 +124,21 @@ class User extends Authenticatable
         $allowed = $this->allowedPanelRoutes();
 
         return in_array('*', $allowed, true) || in_array($route, $allowed, true);
+    }
+
+    /**
+     * IDs de los eventos asignados a este usuario (tickets_event_user).
+     *
+     * Es la base del limite de un cajero: solo ve, filtra y escanea estos
+     * eventos. Un cajero sin asignaciones devuelve [] y, por lo tanto, no
+     * ve ni escanea nada. El administrador no se limita con esta lista.
+     */
+    public function assignedEventIds(): array
+    {
+        return DB::table('tickets_event_user')
+            ->where('user_id', $this->id)
+            ->pluck('event_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 }

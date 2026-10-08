@@ -30,7 +30,20 @@ class TicketsUserController extends Controller
             });
         }
 
-        return response()->json($query->orderByDesc('id')->paginate(20));
+        $users = $query->orderByDesc('id')->paginate(20);
+
+        /*
+        | Carga los eventos asignados a los usuarios de la pagina para que el
+        | form de edicion arranque con las selecciones ya puestas y la tabla
+        | pueda mostrar de cuantos eventos se trata cada cajero.
+        */
+        $assigned = $this->eventsByUser($users->pluck('id')->all());
+
+        foreach ($users->items() as $user) {
+            $user->events = $assigned[$user->id] ?? [];
+        }
+
+        return response()->json($users);
     }
 
     public function store(Request $request): JsonResponse
@@ -46,6 +59,14 @@ class TicketsUserController extends Controller
             // administrador y no hay forma de dar de alta al de la puerta.
             'role' => ['nullable', Rule::in([User::ROLE_ADMIN, User::ROLE_CASHIER])],
             'enable' => 'boolean',
+            /*
+            | Eventos a los que este cajero va a poder entrar y escanear. Solo
+            | aplica al rol cajero: el administrador ignora la asignacion y
+            | ve todos los eventos igual. Sin asignaciones, el cajero no ve
+            | ni escanea ninguno.
+            */
+            'event_ids' => 'sometimes|array',
+            'event_ids.*' => 'integer|exists:tickets_events,id',
         ]);
 
         $dni = isset($validated['dni']) ? preg_replace('/\D+/', '', $validated['dni']) : null;
@@ -65,6 +86,8 @@ class TicketsUserController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        $this->syncEvents($id, $validated['event_ids'] ?? []);
 
         return response()->json(['id' => $id, 'message' => 'Usuario creado'], 201);
     }
@@ -91,6 +114,8 @@ class TicketsUserController extends Controller
             | de que la contrasena que tiene puesta es temporal.
             */
             'password' => 'sometimes|string|min:8|confirmed',
+            'event_ids' => 'sometimes|array',
+            'event_ids.*' => 'integer|exists:tickets_events,id',
         ]);
 
         /*
@@ -130,6 +155,10 @@ class TicketsUserController extends Controller
             $user->password = Hash::make($validated['password']);
             $user->must_change_password = true;
             $user->save();
+        }
+
+        if (array_key_exists('event_ids', $validated)) {
+            $this->syncEvents($id, $validated['event_ids']);
         }
 
         return response()->json(['message' => 'Usuario actualizado']);
@@ -205,6 +234,53 @@ class TicketsUserController extends Controller
         }
 
         return response()->json($query->orderByDesc('total_spent')->paginate(20));
+    }
+
+    /**
+     * Reemplaza los eventos asignados a un usuario del panel. Si la lista viene
+     * vacia queda sin ninguno, que para un cajero significa no ver ni escanear
+     * nada hasta que se le asigne alguno.
+     */
+    private function syncEvents(int $userId, array $eventIds): void
+    {
+        DB::table('tickets_event_user')->where('user_id', $userId)->delete();
+
+        $now = now();
+
+        foreach (array_unique(array_map('intval', $eventIds)) as $eventId) {
+            DB::table('tickets_event_user')->insert([
+                'user_id' => $userId,
+                'event_id' => $eventId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+    }
+
+    /**
+     * Eventos asignados, agrupados por usuario: [user_id => [{id, name}]].
+     * Una sola query extra por pagina de listado.
+     */
+    private function eventsByUser(array $userIds): array
+    {
+        if (! $userIds) {
+            return [];
+        }
+
+        $map = [];
+
+        $rows = DB::table('tickets_event_user as eu')
+            ->join('tickets_events as e', 'e.id', '=', 'eu.event_id')
+            ->whereIn('eu.user_id', $userIds)
+            ->orderBy('e.name')
+            ->select(['eu.user_id', 'e.id', 'e.name'])
+            ->get();
+
+        foreach ($rows as $row) {
+            $map[$row->user_id][] = ['id' => (int) $row->id, 'name' => $row->name];
+        }
+
+        return $map;
     }
 
     /**

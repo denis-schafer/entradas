@@ -22,6 +22,18 @@ class TicketsScanController extends Controller
 
         $eventId = (int) $validated['event_id'];
 
+        /*
+        | El cajero solo escanea eventos asignados. Se corta antes de tocar
+        | nada: sin asignacion no hay escaneo posible, y un evento ajeno
+        | tampoco. El administrador no se limita.
+        */
+        if ($scanner?->isCashier() && ! in_array($eventId, $scanner->assignedEventIds(), true)) {
+            return response()->json([
+                'result' => 'forbidden',
+                'message' => 'No estas asignado a este evento',
+            ], 403);
+        }
+
         // QrPayload::secret() crea el secreto si falta. Es la garantia de que
         // "Sistema sin configurar" no aparece nunca: si hay boletos emitidos,
         // el secreto tiene que existir, y si no hay ninguno todavia, todavia
@@ -190,6 +202,12 @@ class TicketsScanController extends Controller
                 'u.name as scanner_name',
                 'tt.name as ticket_type_name',
             ]);
+
+        // El historial del cajero queda limitado a sus eventos asignados,
+        // igual que la lista de eventos y el escaneo.
+        if ($request->user()?->isCashier()) {
+            $query->whereIn('s.event_id', $request->user()->assignedEventIds());
+        }
 
         if ($eventId = $request->query('event_id')) {
             $query->where('s.event_id', (int) $eventId);

@@ -13,6 +13,7 @@
 import { ref, reactive, watch, computed, onMounted } from 'vue';
 import api, { toError } from '../api.js';
 import EmptyState from '../ui/EmptyState.vue';
+import MultiSelectFilter from '../ui/MultiSelectFilter.vue';
 import { toast } from '../ui/toast.js';
 
 const props = defineProps({ user: { type: Object, required: true } });
@@ -22,6 +23,10 @@ const tab = ref('admins');
 const admins = ref([]);
 const buyers = ref([]);
 const meta = reactive({ admins: page(1, 1, 0), buyers: page(1, 1, 0) });
+
+// Todos los eventos, para el selector de eventos asignados del form. Solo
+// lo usa el admin, que ve los eventos sin limite: el cajero no llega aca.
+const events = ref([]);
 
 const search = ref('');
 const loading = ref(true);
@@ -121,6 +126,15 @@ async function load() {
     }
 }
 
+async function loadEvents() {
+    try {
+        const { data } = await api.get('tickets-admin/events', { all: 1 });
+        events.value = data;
+    } catch (err) {
+        // Sin la lista el form igual abre: simplemente no hay opciones para elegir.
+    }
+}
+
 function switchTab(next) {
     tab.value = next;
     search.value = '';
@@ -130,6 +144,7 @@ function switchTab(next) {
 function openCreate() {
     resetResult.value = null;
     editorError.value = '';
+    loadEvents();
     editor.value = {
         name: '',
         email: '',
@@ -138,6 +153,7 @@ function openCreate() {
         password: '',
         role: 'admin',
         enable: true,
+        event_ids: [],
         mode: 'create',
     };
 }
@@ -145,6 +161,7 @@ function openCreate() {
 function openEdit(user) {
     resetResult.value = null;
     editorError.value = '';
+    loadEvents();
     editor.value = {
         id: user.id,
         mode: 'edit',
@@ -158,12 +175,23 @@ function openEdit(user) {
         // rol: para la app son administradores, y por eso se muestran como tal.
         role: user.role === 'cajero' ? 'cajero' : 'admin',
         enable: Boolean(user.enable),
+        // Eventos que este cajero puede ver y escanear. El admin no usa esto
+        // (ve todos los eventos igual), pero se precarga igual de la fila.
+        event_ids: (user.events || []).map((event) => event.id),
     };
 }
 
 function closeEditor() {
     editor.value = null;
     editorError.value = '';
+}
+
+/*
+| Las asignaciones solo limitan a los cajeros: al admin se le manda lista
+| vacia para que no queden filas viejas colgando si alguien bajo un rol.
+*/
+function eventIdsForSubmit() {
+    return editor.value.role === 'cajero' ? editor.value.event_ids : [];
 }
 
 async function submitEditor() {
@@ -180,6 +208,7 @@ async function submitEditor() {
                 password: editor.value.password,
                 role: editor.value.role,
                 enable: editor.value.enable,
+                event_ids: eventIdsForSubmit(),
             });
 
             toast(
@@ -215,6 +244,7 @@ async function submitEditor() {
                 phone: editor.value.phone || null,
                 role: editor.value.role,
                 enable: editor.value.enable,
+                event_ids: eventIdsForSubmit(),
                 ...passwordFields,
             });
 
@@ -299,7 +329,10 @@ watch(search, () => {
     searchTimer = setTimeout(load, 350);
 });
 
-onMounted(load);
+onMounted(() => {
+    load();
+    loadEvents();
+});
 </script>
 
 <template>
@@ -401,6 +434,13 @@ onMounted(load);
                                 <span class="et-badge" :class="row.role === 'cajero' ? 'et-badge--muted' : 'et-badge--success'">
                                     {{ row.role === 'cajero' ? 'Cajero' : 'Administrador' }}
                                 </span>
+                                <div v-if="row.role === 'cajero'" class="small text-faint mt-1">
+                                    {{
+                                        row.events && row.events.length
+                                            ? `Asignado a ${row.events.length} evento${row.events.length === 1 ? '' : 's'}`
+                                            : 'Sin eventos asignados'
+                                    }}
+                                </div>
                             </td>
                             <td class="small text-faint numeric">{{ formatDateTime(row.last_login_at) }}</td>
                             <td>
@@ -543,6 +583,21 @@ onMounted(load);
                         </select>
                         <div class="form-text">
                             El cajero ve unicamente Escanear, Escaneos y su contrasena.
+                        </div>
+                    </div>
+
+                    <div v-if="editor.role === 'cajero'" class="mb-3">
+                        <label class="form-label">Eventos asignados</label>
+                        <MultiSelectFilter
+                            v-model="editor.event_ids"
+                            :items="events"
+                            placeholder="Buscar evento..."
+                            none-text="Ningun evento seleccionado"
+                            empty-text="No hay eventos para asignar"
+                        />
+                        <div class="form-text">
+                            Solo escanea los eventos elegidos. Sin ninguno asignado no ve
+                            ni puede escanear ninguno hasta que se le asigne.
                         </div>
                     </div>
 

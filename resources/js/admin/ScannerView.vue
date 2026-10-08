@@ -331,8 +331,8 @@ onBeforeUnmount(() => {
                 v-if="!events.length"
                 class="mt-3"
                 icon="bi-calendar-x"
-                title="No hay eventos publicados"
-                hint="Publica uno antes de escanear."
+                title="No hay eventos para escanear"
+                hint="Si sos cajero, pedi que te asignen a alguno."
             />
 
             <p v-if="cameraError" class="small mt-3 mb-2" style="color: var(--et-danger)">

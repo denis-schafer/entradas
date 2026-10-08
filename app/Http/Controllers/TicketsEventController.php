@@ -16,6 +16,15 @@ class TicketsEventController extends Controller
     {
         $query = DB::table('tickets_events')->orderByDesc('id');
 
+        /*
+        | Un cajero solo ve los eventos que le estan asignados: con la lista
+        | vacia no ve ninguno y no puede escanear hasta que se le asigne
+        | alguno. El administrador pasa por todos los eventos igual.
+        */
+        if ($request->user()?->isCashier()) {
+            $query->whereIn('tickets_events.id', $request->user()->assignedEventIds());
+        }
+
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
