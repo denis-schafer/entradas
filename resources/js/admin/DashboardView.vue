@@ -25,6 +25,10 @@ const data = ref(null);
 const loading = ref(true);
 const error = ref('');
 
+// Filtro por evento, mismo estilo que Estadisticas: vacio = todos.
+const events = ref([]);
+const eventId = ref(props.event_id ? Number(props.event_id) : '');
+
 /* Cada evento del panel pide un refresco. No se usan los payloads: digan lo
    que digan, la fuente de verdad es la respuesta del dashboard. */
 let unsubscribers = [];
@@ -32,7 +36,7 @@ let unsubscribers = [];
 async function load() {
     try {
         const { data: payload } = await api.get('tickets-admin/dashboard', {
-            event_id: props.event_id || undefined,
+            event_id: eventId.value || undefined,
         });
 
         data.value = payload;
@@ -43,6 +47,24 @@ async function load() {
         loading.value = false;
     }
 }
+
+async function loadEvents() {
+    try {
+        const { data: payload } = await api.get('tickets-admin/events', { all: 1 });
+        events.value = payload;
+    } catch {
+        // El filtro es una comodidad: sin la lista el panel se ve global.
+    }
+}
+
+function applyEventFilter() {
+    loading.value = true;
+    load();
+}
+
+const currentEventName = computed(() =>
+    eventId.value ? events.value.find((event) => event.id === eventId.value)?.name : 'Todos los eventos',
+);
 
 const revenue = computed(() => data.value?.revenue ?? 0);
 
@@ -80,7 +102,7 @@ function formatEventDate(value) {
 }
 
 onMounted(async () => {
-    await load();
+    await Promise.all([load(), loadEvents()]);
 
     // El canal del admin. Cualquiera de estos eventos puede cambiar un numero
     // de esta pantalla, asi que los cinco usan la misma accion.
@@ -106,6 +128,25 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="dash">
+        <header class="d-flex align-items-center justify-content-between gap-2 mb-3 flex-wrap">
+            <div>
+                <h2 class="h5 fw-bold mb-0">Panel</h2>
+                <p class="text-muted-2 small mb-0">{{ currentEventName }}</p>
+            </div>
+
+            <select
+                v-model="eventId"
+                class="form-select"
+                style="max-width: 260px"
+                @change="applyEventFilter"
+            >
+                <option value="">Todos los eventos</option>
+                <option v-for="event in events" :key="event.id" :value="event.id">
+                    {{ event.name }}
+                </option>
+            </select>
+        </header>
+
         <p v-if="error" class="small" style="color: var(--et-danger)">
             <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
         </p>

@@ -40,7 +40,19 @@ class TicketsScanController extends Controller
         // no hay nada legitimo que escanear.
         $secret = QrPayload::secret();
 
-        $payload = QrPayload::verify($validated['qr_payload'], $secret);
+        $raw = trim($validated['qr_payload']);
+        $payload = QrPayload::verify($raw, $secret);
+
+        /*
+        | Ademas del QR firmado se acepta el uuid pelado (el que se muestra
+        | impreso debajo del QR en el portal): quien no puede escanear el
+        | codigo puede copiar ese numero y pegarlo, y se valida igual contra
+        | la tabla de boletos. Solo entra si tiene forma de uuid: cualquier
+        | otra basura sigue cayendo en "QR no valido".
+        */
+        if (! $payload && ($uuid = self::looseUuid($raw))) {
+            $payload = ['uuid' => $uuid];
+        }
 
         if (! $payload) {
             // No se registra escaneo: un QR mal formado o con firma invalida
@@ -221,7 +233,26 @@ class TicketsScanController extends Controller
     }
 
     /**
-* Registra el escaneo y devuelve la respuesta al lector. Los escaneos con
+     * Normaliza un texto a uuid canonico con guiones si tiene forma de uuid
+     * (con o sin guiones, mayusculas o minusculas). Devuelve null si no lo es.
+     */
+    private static function looseUuid(string $raw): ?string
+    {
+        $hex = strtolower(str_replace('-', '', $raw));
+
+        if (! preg_match('/^[0-9a-f]{32}$/', $hex)) {
+            return null;
+        }
+
+        return substr($hex, 0, 8).'-'
+            .substr($hex, 8, 4).'-'
+            .substr($hex, 12, 4).'-'
+            .substr($hex, 16, 4).'-'
+            .substr($hex, 20);
+    }
+
+    /**
+ * Registra el escaneo y devuelve la respuesta al lector. Los escaneos con
      * ticket_id nulo son los que no corresponden a ningun boleto.
      */
     private function log(

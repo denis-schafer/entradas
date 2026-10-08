@@ -71,7 +71,8 @@ const LOOKUP = {
 
 const view = computed(() => LOOKUP[result.value?.result] || LOOKUP.invalid);
 
-const canScan = computed(() => selectedEvent.value && !busy.value);
+// El evento en curso, para mostrarlo como nombre cuando hay solo uno.
+const currentEvent = computed(() => events.value.find((event) => event.id === selectedEvent.value) || null);
 
 async function loadEvents() {
     try {
@@ -193,6 +194,27 @@ function stopCamera() {
     locked = false;
 }
 
+/*
+| Tocar el area de escaneo prende la camara: en la puerta no se busca un
+| boton, se apunta y se toca. Con la camara ya prendida el toque no hace
+| nada (detener sigue siendo el boton del encabezado), para que un dedo
+| que resbale sobre el video no corte una lectura en curso.
+*/
+function onStageClick() {
+    if (scanning.value || busy.value) {
+        return;
+    }
+
+    if (!selectedEvent.value) {
+        cameraError.value = events.value.length
+            ? 'Elegi un evento para escanear.'
+            : 'No hay eventos para escanear.';
+        return;
+    }
+
+    startCamera();
+}
+
 function lock(seconds = 2.5) {
     locked = true;
 
@@ -302,26 +324,32 @@ onBeforeUnmount(() => {
     <div class="scanner">
         <div class="scanner__controls et-surface-raised p-3 mb-3">
             <div class="row g-2 align-items-end">
+                <!--
+                    Con un solo evento elegir es ruido: se muestra el nombre.
+                    El select aparece recien cuando hay mas de uno (el caso de
+                    un cajero con varios eventos asignados).
+                -->
                 <div class="col-12 col-md-6">
-                    <label class="form-label" for="event">Evento</label>
-                    <select id="event" v-model="selectedEvent" class="form-select">
+                    <label v-if="events.length > 1" class="form-label" for="event">Evento</label>
+                    <select
+                        v-if="events.length > 1"
+                        id="event"
+                        v-model="selectedEvent"
+                        class="form-select"
+                    >
                         <option :value="null" disabled>Elegi un evento</option>
                         <option v-for="event in events" :key="event.id" :value="event.id">
                             {{ event.name }}
                         </option>
                     </select>
+                    <div v-else-if="currentEvent">
+                        <div class="form-label">Evento</div>
+                        <div class="fw-semibold">{{ currentEvent.name }}</div>
+                    </div>
                 </div>
 
-                <div class="col-12 col-md-6 d-flex gap-2">
-                    <button
-                        v-if="!scanning"
-                        class="btn btn-et-primary flex-grow-1"
-                        :disabled="!canScan"
-                        @click="startCamera"
-                    >
-                        <i class="bi bi-camera me-1"></i>Activar camara
-                    </button>
-                    <button v-else class="btn btn-et-ghost flex-grow-1" @click="stopCamera">
+                <div class="col-12 col-md-6 d-flex gap-2 justify-content-md-end">
+                    <button v-if="scanning" class="btn btn-et-ghost" @click="stopCamera">
                         <i class="bi bi-stop-circle me-1"></i>Detener
                     </button>
                 </div>
@@ -342,12 +370,12 @@ onBeforeUnmount(() => {
 
         <div class="scanner__grid">
             <section class="scanner__stage">
-                <div class="stage et-surface">
+                <div class="stage et-surface" :class="{ 'is-idle': !scanning }" @click="onStageClick">
                     <video ref="videoEl" class="stage__video" playsinline muted></video>
 
                     <div v-if="!scanning" class="stage__placeholder">
                         <i class="bi bi-upc-scan"></i>
-                        <p class="mb-0">Activa la camara para empezar a escanear</p>
+                        <p class="mb-0">Toca el area para activar la camara</p>
                     </div>
 
                     <div class="stage__reticle" :class="{ 'is-live': scanning }"></div>
@@ -367,14 +395,14 @@ onBeforeUnmount(() => {
                 </div>
 
                 <form class="manual mt-3" @submit.prevent="manualSubmit">
-                    <label class="form-label" for="manual">O pegá el contenido del QR</label>
+                    <label class="form-label" for="manual">O pega el uuid o el contenido del QR</label>
                     <div class="d-flex gap-2">
                         <input
                             id="manual"
                             v-model="manual"
                             type="text"
-                            class="form-control numeric"
-                            placeholder='{"uuid":"...","s":"..."}'
+                            class="form-control"
+                            placeholder="El uuid impreso debajo del QR"
                         >
                         <button class="btn btn-et-ghost" type="submit" :disabled="!manual.trim() || !selectedEvent">
                             Validar
@@ -437,6 +465,10 @@ onBeforeUnmount(() => {
     overflow: hidden;
     border-radius: var(--et-radius);
     background: #0b0b10;
+}
+
+.stage.is-idle {
+    cursor: pointer;
 }
 
 .stage__video {
