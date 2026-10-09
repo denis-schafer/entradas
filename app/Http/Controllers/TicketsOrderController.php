@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\OrderPaymentService;
+use App\Support\MercadoPagoToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -113,7 +114,9 @@ class TicketsOrderController extends Controller
         }
 
         $event = DB::table('tickets_events')->where('id', $order->event_id)->first();
-        $accessToken = $event->mp_access_token ?? null;
+
+        // Token del evento o, si no tiene, el de la cuenta de la plataforma.
+        $accessToken = MercadoPagoToken::forEvent($event);
 
         if (empty($accessToken)) {
             return response()->json([

@@ -44,6 +44,9 @@ const mpConnected = ref(false);
 const mpConnecting = ref(false);
 const testingEventMp = ref(false);
 const mpDisconnect = ref(false);
+// El evento no tiene token propio pero hay token de la plataforma: cobra la
+// cuenta de la plataforma.
+const mpUsesPlatform = ref(false);
 
 const types = ref([]);
 const loading = ref(false);
@@ -115,6 +118,10 @@ async function load() {
 
         // El show() devuelve mp_connected: lo usamos para pintar el badge.
         mpConnected.value = Boolean(data.mp_connected);
+
+        // Sin token propio pero con token de plataforma: el evento cobra con
+        // la cuenta de la plataforma.
+        mpUsesPlatform.value = Boolean(data.uses_platform_account);
 
         types.value = (data.ticket_types || []).map((t) => ({
             ...t,
@@ -307,6 +314,16 @@ async function testEventMp() {
     } finally {
         testingEventMp.value = false;
     }
+}
+
+/*
+ * Marca el token del evento para borrar: el payload manda el sentinel
+ * "__disconnect__" y el backend lo setea null. El borrado recien se aplica al
+ * guardar el evento, por eso el aviso queda hasta apretar "Guardar cambios".
+ */
+function disconnectMp() {
+    mpDisconnect.value = true;
+    form.mp_access_token = '';
 }
 
 function publish() {
@@ -852,17 +869,24 @@ onMounted(async () => {
                         <h2 class="h6 fw-bold mb-3">MercadoPago</h2>
 
                         <p class="small text-muted-2 mb-2">
-                            Cada evento cobra con su propia cuenta de MP.
+                            Cada evento puede cobrar con su propia cuenta de MP.
                             Conectala via el botón de OAuth, o pega el
-                            <strong>Access token</strong> a mano.
+                            <strong>Access token</strong> a mano. Si no hay token
+                            propio, se usa la cuenta de la plataforma.
                         </p>
 
-                        <div class="d-flex align-items-center gap-2 mb-2">
+                        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
                             <span
                                 v-if="mpConnected"
                                 class="et-badge et-badge--success"
                             >
                                 Conectado
+                            </span>
+                            <span
+                                v-else-if="mpUsesPlatform"
+                                class="et-badge et-badge--info"
+                            >
+                                Usa la cuenta de la plataforma
                             </span>
                             <span v-else class="et-badge et-badge--warning">
                                 Sin token
@@ -897,36 +921,73 @@ onMounted(async () => {
                             </button>
                         </div>
 
-                        <input
-                            v-model="form.mp_access_token"
-                            type="text"
-                            class="form-control form-control-sm"
-                            autocomplete="off"
-                            spellcheck="false"
-                            :placeholder="form.mp_access_token ? 'Pegá uno nuevo para reemplazar' : 'APP_USR-... o TEST-...'"
-                        >
+                        <div class="input-group input-group-sm">
+                            <input
+                                v-model="form.mp_access_token"
+                                type="text"
+                                class="form-control form-control-sm"
+                                autocomplete="off"
+                                spellcheck="false"
+                                :placeholder="mpConnected
+                                    ? 'Pegá uno nuevo para reemplazar'
+                                    : 'APP_USR-... o TEST-...'"
+                                :disabled="mpDisconnect"
+                            >
+                            <span
+                                v-if="mpConnected && !mpDisconnect"
+                                class="input-group-text text-success"
+                                title="Hay un token guardado"
+                            >
+                                <i class="bi bi-check-circle-fill"></i>
+                            </span>
+                            <button
+                                v-if="mpConnected && !mpDisconnect"
+                                type="button"
+                                class="btn btn-outline-danger btn-sm"
+                                title="Eliminar el token guardado"
+                                @click="disconnectMp"
+                            >
+                                <i class="bi bi-trash"></i>
+                            </button>
+                            <button
+                                v-if="mpDisconnect"
+                                type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                @click="mpDisconnect = false"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
 
-                        <p class="form-text mb-0 mt-2">
+                        <p
+                            v-if="mpDisconnect"
+                            class="small mt-2 mb-0"
+                            style="color: var(--et-danger)"
+                        >
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            El token guardado se elimina al apretar
+                            <strong>Guardar cambios</strong>.
+                        </p>
+
+                        <p v-else class="form-text mb-0 mt-2">
                             Lo sacas de la cuenta de MP del organizador &raquo;
                             <strong>Tus integraciones</strong> &raquo; <strong>Credenciales</strong>.
                             Empieza con <code>APP_USR-</code> (produccion) o <code>TEST-</code> (pruebas).
                             Queda guardado al apretar <strong>Guardar cambios</strong> del evento.
                         </p>
 
-                        <div v-if="mpConnected" class="form-check mt-2">
-                                <input
-                                    id="mp-disconnect"
-                                    v-model="mpDisconnect"
-                                    class="form-check-input"
-                                    type="checkbox"
-                                >
-                                <label class="form-check-label small" for="mp-disconnect">
-                                    Desconectar MercadoPago (borra el token guardado)
-                                </label>
-                            </div>
+                        <p
+                            v-if="!mpConnected && mpUsesPlatform"
+                            class="small mt-2 mb-0"
+                            style="color: var(--et-info, #0d6efd)"
+                        >
+                            <i class="bi bi-info-circle me-1"></i>
+                            Este evento no tiene cuenta propia: los cobros caen en la
+                            cuenta de la plataforma.
+                        </p>
 
                         <p
-                            v-if="!mpConnected && !mpHasClientId"
+                            v-else-if="!mpConnected && !mpHasClientId"
                             class="small mt-2 mb-0"
                             style="color: var(--et-warning, #b8860b)"
                         >

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\MercadoPagoToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -232,14 +233,26 @@ class TicketsConfigController extends Controller
     {
         $eventId = (int) $request->input('event_id', $request->query('event_id'));
 
+        $platformToken = MercadoPagoToken::platform();
+
         if (! $eventId) {
-            return response()->json(['connected' => false, 'has_client_id' => $this->hasClientId()]);
+            return response()->json([
+                'connected' => false,
+                'event_connected' => false,
+                'has_platform_token' => $platformToken !== null,
+                'uses_platform_account' => $platformToken !== null,
+                'has_client_id' => $this->hasClientId(),
+            ]);
         }
 
         $event = DB::table('tickets_events')->where('id', $eventId)->first(['mp_access_token']);
+        $eventConnected = ! empty($event?->mp_access_token);
 
         return response()->json([
-            'connected' => ! empty($event?->mp_access_token),
+            'connected' => $eventConnected,
+            'event_connected' => $eventConnected,
+            'has_platform_token' => $platformToken !== null,
+            'uses_platform_account' => ! $eventConnected && $platformToken !== null,
             'has_client_id' => $this->hasClientId(),
         ]);
     }

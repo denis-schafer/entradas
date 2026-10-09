@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\OrderPaymentService;
 use App\Services\Realtime;
+use App\Support\MercadoPagoToken;
 use App\Support\QrPayload;
 use App\Support\QrRenderer;
 use Illuminate\Http\JsonResponse;
@@ -48,7 +49,9 @@ class TicketsMercadoPagoController extends Controller
         /*
         | El access_token es per-evento: el operador (o el organizador del
         | evento) lo carga manualmente o via OAuth en la edicion del evento.
-        | Si no esta configurado, no hay a quien cobrarle al comprador.
+        | Si el evento no tiene token propio, se cobra con la cuenta de la
+        | plataforma (tickets_configs.mp_access_token); solo si ninguna de las
+        | dos esta configurada no hay a quien cobrarle al comprador.
         */
         $event = DB::table('tickets_events')->where('id', $order->event_id)->first();
 
@@ -56,7 +59,7 @@ class TicketsMercadoPagoController extends Controller
             return response()->json(['message' => 'Evento no disponible'], 404);
         }
 
-        $accessToken = $event->mp_access_token ?? null;
+        $accessToken = MercadoPagoToken::forEvent($event);
 
         if (empty($accessToken)) {
             return response()->json([
@@ -306,10 +309,11 @@ try {
             return response()->json(['status' => 'ok']);
         }
 
-        $accessToken = $event->mp_access_token ?? null;
+        // Token del evento o, si no tiene, el de la cuenta de la plataforma.
+        $accessToken = MercadoPagoToken::forEvent($event);
 
         if (empty($accessToken)) {
-            Log::warning('[TicketsMP Webhook] evento sin access_token, pago ignorado', [
+            Log::warning('[TicketsMP Webhook] evento y plataforma sin access_token, pago ignorado', [
                 'event_id' => $event_id,
                 'payment_id' => $paymentId,
             ]);
@@ -499,12 +503,9 @@ try {
             /*
             | El token se guarda en el evento: cada operador conecta su MP al
             | evento que organiza, y los pagos de ese evento caen ahi.
-            | refresh_token queda para renovar sin pedir reautorizacion.
             */
             DB::table('tickets_events')->where('id', $eventId)->update([
                 'mp_access_token' => $body['access_token'] ?? null,
-                'mp_refresh_token' => $body['refresh_token'] ?? null,
-                'mp_authorized_at' => now(),
                 'updated_at' => now(),
             ]);
 

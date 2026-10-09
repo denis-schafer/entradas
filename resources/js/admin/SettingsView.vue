@@ -3,8 +3,10 @@
  * Configuracion general.
  *
  * Se muestran como secretos los que nunca se devuelven en claro al navegador.
- * El access_token de MP es por evento y se gestiona en la edicion de cada uno;
- * aca solo queda mp_webhook_secret (global, opcional) y qr_secret (autogenerado).
+ * El access_token de MP puede ser por evento (se gestiona al editar el evento)
+ * o de la plataforma: este ultimo se carga aca y es el que se usa cuando el
+ * evento no tiene token propio. Tambien queda mp_webhook_secret (global,
+ * opcional) y qr_secret (autogenerado).
  */
 import { ref, computed, onMounted } from 'vue';
 import api, { toError } from '../api.js';
@@ -25,7 +27,7 @@ const READ_ONLY_SECRETS = ['qr_secret'];
  * al listar (el backend los enmascara como "__set__"). Se inicializan vacios en
  * drafts para que el input arranque limpio, no con el valor "__set__".
  */
-const EDITABLE_SECRET_NAMES = ['mp_webhook_secret'];
+const EDITABLE_SECRET_NAMES = ['mp_access_token', 'mp_webhook_secret'];
 
 // El nombre de la fila es la clave real del backend, asi que se muestra
 // traducido en pantalla pero no se renombra: cambiarlo seria cambiar el
@@ -324,10 +326,48 @@ onMounted(load);
                     <p class="small text-muted-2 mb-0">
                         Las credenciales OAuth de la app (Client ID/Secret) van en el
                         <code>.env</code> del servidor, NO aca. El <strong>access_token</strong>
-                        de cada organizador se carga en la edicion de su evento (boton
-                        "Conectar con MP" o paste manual). Aca queda solo el secreto
-                        del webhook de plataforma (opcional).
+                        de la plataforma se usa para cobrar los eventos que no tienen una
+                        cuenta de MP propia (esos se cargan en la edicion del evento). El
+                        secreto del webhook es opcional.
                     </p>
+                </div>
+
+                <!--
+                    Access token de la plataforma: se usa como fallback para eventos
+                    sin cuenta de MP propia. El backend lo enmascara como "__set__".
+                -->
+                <div class="mb-3">
+                    <label class="form-label" for="mp-access-token">Access token de la plataforma</label>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <input
+                            id="mp-access-token"
+                            v-model="drafts.mp_access_token"
+                            type="text"
+                            class="form-control form-control-sm flex-grow-1"
+                            autocomplete="off"
+                            spellcheck="false"
+                            :placeholder="isSet(byName('mp_access_token')) ? 'Configurado. Pegá uno nuevo para reemplazar.' : 'APP_USR-... o TEST-...'"
+                        >
+                        <button
+                            class="btn btn-et-ghost btn-sm"
+                            :disabled="saving || !drafts.mp_access_token"
+                            @click="saveSecret('mp_access_token')"
+                        >
+                            <span
+                                v-if="saving && savingName === 'mp_access_token'"
+                                class="spinner-border spinner-border-sm me-1"
+                            ></span>
+                            Guardar token
+                        </button>
+                        <button
+                            v-if="isSet(byName('mp_access_token'))"
+                            class="btn btn-outline-danger btn-sm"
+                            :disabled="saving"
+                            @click="clearSecret('mp_access_token')"
+                        >
+                            Quitar
+                        </button>
+                    </div>
                 </div>
 
                 <!--

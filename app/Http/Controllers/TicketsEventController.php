@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\Realtime;
 use App\Support\DateInput;
+use App\Support\MercadoPagoToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -62,14 +63,25 @@ class TicketsEventController extends Controller
         | enmascaramos como '__set__' en la respuesta para no exponer el
         | secreto. El frontend usa el flag "mp_connected" para pintar el badge
         | y deja vacio el input hasta que el operador lo cambie.
+        |
+        | Ademas informamos si no tiene token propio pero hay token de
+        | plataforma: asi la UI muestra que "cobra con cuenta de la plataforma".
         */
-        if (! empty($event->mp_access_token)) {
+        $eventConnected = ! empty($event->mp_access_token);
+        $platformToken = MercadoPagoToken::platform();
+
+        if ($eventConnected) {
             $event->mp_access_token = '__set__';
             $event->mp_connected = true;
+            $event->event_connected = true;
         } else {
             $event->mp_access_token = '';
             $event->mp_connected = false;
+            $event->event_connected = false;
         }
+
+        $event->has_platform_token = $platformToken !== null;
+        $event->uses_platform_account = ! $eventConnected && $platformToken !== null;
 
         return response()->json($event);
     }
