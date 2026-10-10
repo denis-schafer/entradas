@@ -12,24 +12,23 @@ use Symfony\Component\HttpFoundation\Response;
 class TicketsMultipagoController extends Controller
 {
     /**
-     * Webhook de Multipago. GET o POST (como los envia ISPCube), si sin sesion.
+     * Webhook de Multipago. GET o POST (como los envia ISPCube), sin sesion.
+     *
+     * Es una sola URL para todos los eventos (una cuenta): la key global
+     * identifica la instalacion. El evento surge de la orden.
      *
      * Respuesta en texto plano: "insertado" | "ya ingresado" |
      * "cliente no encontrado" | error. Los duplicados se controlan por
      * `identifier` (id del cobro en Multipago), igual que en el chequeo masivo.
      */
-    public function webhook(Request $request, int $eventId, string $key): Response
+    public function webhook(Request $request, string $key): Response
     {
         $gateway = PaymentGatewayRegistry::for('multipago');
 
-        if (! $gateway->webhookKeyMatches($eventId, $key)) {
-            Log::warning('[Multipago Webhook] key invalida', ['event_id' => $eventId]);
+        if (! $gateway->webhookKeyMatches($key)) {
+            Log::warning('[Multipago Webhook] key invalida');
 
             return $this->plain('Error en webhooks_key', 403);
-        }
-
-        if (! $gateway->eventEnabled($eventId)) {
-            return $this->plain('Modulo deshabilitado', 403);
         }
 
         $payload = $request->isMethod('post')
@@ -52,23 +51,21 @@ class TicketsMultipagoController extends Controller
 
         if (! $order) {
             Log::warning('[Multipago Webhook] orden no encontrada', [
-                'event_id' => $eventId,
                 'order_id' => $normalized['order_id'],
             ]);
 
             return $this->plain('cliente no encontrado', 404);
         }
 
-        // La orden pertenece al evento de la URL: nunca validar un pago contra
-        // el evento equivocado solo porque el customer_id coincida.
-        if ((int) $order->event_id !== $eventId) {
-            Log::warning('[Multipago Webhook] orden de otro evento', [
-                'event_id' => $eventId,
+        // El evento surge de la orden (no de la URL): solo se acredita si ese
+        // evento tiene Multipago habilitado.
+        if (! $gateway->eventEnabled((int) $order->event_id)) {
+            Log::warning('[Multipago Webhook] medio deshabilitado para el evento', [
                 'order_id' => $order->id,
-                'order_event_id' => $order->event_id,
+                'event_id' => $order->event_id,
             ]);
 
-            return $this->plain('orden de otro evento', 409);
+            return $this->plain('Modulo deshabilitado', 403);
         }
 
         if ($normalized['amount'] !== null) {

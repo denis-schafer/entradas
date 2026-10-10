@@ -1,28 +1,32 @@
 <script setup>
 /**
- * "Medios de pago": credenciales de cada proveedor y su asignacion por evento.
+ * "Medios de pago" (admin).
  *
- * Dos pisos:
- *   - Config GLOBAL del proveedor (la cuenta): enabled + credenciales.
- *   - Por evento: enabled y valores particulares (token MP del evento, webhook
- *     de Multipago).
+ * Dos niveles:
+ *   1. Config GLOBAL del proveedor (la cuenta: enabled + credenciales).
+ *   2. Config por evento: se elige el evento en un <select> y se muestran sus
+ *      ajustes particulares (habilitado, token OAuth del evento, etc.).
  *
- * Las credenciales viajan enmascaradas: el backend devuelve '••••••••' donde
- * hay un secreto guardado y, al guardar, ese valor literal se interpreta como
- * "no tocar". Para borrar un secreto esta el link "Quitar" de cada campo.
+ * Multipago: una sola cuenta y UN solo webhook para todos los eventos. La URL
+ * se muestra en la config global (con boton para rotar la key).
+ *
+ * Las credenciales viajan enmascaradas: el backend devuelve la mascara donde
+ * hay un secreto guardado; al guardar, ese valor se interpreta como "no tocar".
  */
 import { ref, onMounted } from 'vue';
 import api, { toError } from '../api.js';
 import { toast } from '../ui/toast.js';
 
-const props = defineProps({
+const BULLET = '\u2022';
+
+defineProps({
     id: { type: [Number, String], default: null },
 });
 
 const loading = ref(false);
 const methods = ref([]);
-
 const open = ref({});
+const selectedEvent = ref({});
 
 const FIELDS = {
     mercadopago: {
@@ -31,8 +35,8 @@ const FIELDS = {
             { key: 'client_secret', label: 'Client Secret (OAuth)', secret: true },
             { key: 'platform_access_token', label: 'Access token de la plataforma', secret: true },
         ],
-        eventTitle: 'Cuenta por evento',
-        eventHint: 'Cada evento puede cobrar con su propia cuenta de MP. Conectala con el boton de OAuth o pega el Access token.',
+        eventTitle: 'Configuración por evento',
+        eventHint: 'Elegí un evento para ver y editar su configuración particular (token OAuth propio, habilitado, etc.).',
     },
     multipago: {
         global: [
@@ -40,25 +44,33 @@ const FIELDS = {
             { key: 'username', label: 'Usuario API', secret: false },
             { key: 'password', label: 'Contraseña API', secret: true },
         ],
-        eventTitle: 'Webhook por evento',
-        eventHint: 'Multipago avisa de cada pago por una URL unica por evento. Copiala en la configuracion de Multipago.',
+        eventTitle: 'Habilitación por evento',
+        eventHint: 'Multipago usa una única cuenta y un único webhook. Acá solo decidís en qué eventos se ofrece.',
     },
 };
 
-// Borradores de la config global y por evento (lo que se edita en pantalla).
-const globalDrafts = ref({});
-const eventDrafts = ref({});
-// "" = sin token remoto; value = '••••••••' (hay secreto guardado pero no se muestra).
-const storedEvent = ref({});
-const clearedSecrets = ref({});
+// Estado de edición.
+const enabledDraft = ref({});      // code -> bool
+const globalDrafts = ref({});      // code -> { key: value }
+const clearedGlobal = ref({});     // code -> [key]
+const eventDrafts = ref({});       // code -> { eventId: token }
+const eventEnabled = ref({});      // code -> { eventId: bool }
+const eventClearToken = ref({});   // code -> { eventId: bool }
 const saving = ref({});
 const savingEvent = ref({});
 const testing = ref({});
 const validating = ref(false);
 const validateFrom = ref('');
 const validateTo = ref('');
-const webhookUrls = ref({});
 const copied = ref('');
+
+function isMask(value) {
+    return typeof value === 'string' && value.startsWith(BULLET);
+}
+
+function maskText() {
+    return BULLET.repeat(8);
+}
 
 async function load() {
     loading.value = true;
@@ -69,27 +81,28 @@ async function load() {
         methods.value = data.methods || [];
 
         methods.value.forEach((m) => {
-            const fields = FIELDS[m.code]?.global || [];
+            enabledDraft.value[m.code] = !!m.enabled;
+            clearedGlobal.value[m.code] = [];
+
             const drafts = {};
-            const stored = {};
 
-            fields.forEach((f) => {
+            (FIELDS[m.code]?.global || []).forEach((f) => {
                 const value = m.config?.[f.key] ?? '';
-
-                drafts[f.key] = f.secret && value ? '' : value;
-                stored[f.key] = value;
+                drafts[f.key] = f.secret && isMask(value) ? '' : value;
             });
 
             globalDrafts.value[m.code] = drafts;
-            storedEvent.value[m.code] = (m.events || []).reduce((acc, ev) => {
-                acc[ev.event_id] = ev.config?.access_token || '';
-                return acc;
-            }, {});
-            eventDrafts.value[m.code] = (m.events || []).reduce((acc, ev) => ({
-                ...acc,
-                [ev.event_id]: ev.config?.access_token || '',
-            }), {});
-            clearedSecrets.value[m.code] = [];
+
+            eventDrafts.value[m.code] = {};
+            eventEnabled.value[m.code] = {};
+            eventClearToken.value[m.code] = {};
+
+            (m.events || []).forEach((ev) => {
+                eventDrafts.value[m.code][ev.event_id] = ev.config?.access_token || '';
+                eventEnabled.value[m.code][ev.event_id] = !!ev.enabled;
+            });
+
+            selectedEvent.value[m.code] = selectedEvent.value[m.code] ?? null;
             open.value[m.code] = open.value[m.code] ?? false;
         });
     } catch (err) {
@@ -107,32 +120,34 @@ function methodProps(code) {
     return methods.value.find((m) => m.code === code) || {};
 }
 
-function hasSecret(method, key) {
-    const stored = method.config?.[key];
-    return typeof stored === 'string' && stored.startsWith('•');
+function eventsFor(code) {
+    return methodProps(code).events || [];
 }
 
-/* Valor guardado (enmascarado) del token por evento. */
-function eventStored(event, code) {
-    return storedEvent.value[code]?.[event.event_id] || '';
+function selectedEventObj(code) {
+    const id = selectedEvent.value[code];
+
+    return eventsFor(code).find((e) => String(e.event_id) === String(id)) || null;
 }
 
-function eventHasToken(event, code) {
-    return typeof eventStored(event, code) === 'string' && eventStored(event, code).startsWith('•');
+function hasGlobalSecret(method, key) {
+    return isMask(method.config?.[key]);
+}
+
+function eventHasToken(code, eventId) {
+    const ev = eventsFor(code).find((e) => e.event_id === eventId);
+
+    return isMask(ev?.config?.access_token);
 }
 
 async function saveGlobal(code) {
-    const method = methodProps(code);
-    const drafts = globalDrafts.value[code];
-    const cleared = clearedSecrets.value[code] || [];
-
     saving.value[code] = true;
 
     try {
         await api.put(`tickets-admin/payment-methods/${code}`, {
-            enabled: globalDrafts.value.enabled?.[code] ?? method.enabled,
-            config: drafts,
-            cleared_keys: cleared,
+            enabled: enabledDraft.value[code],
+            config: globalDrafts.value[code],
+            cleared_keys: clearedGlobal.value[code] || [],
         });
 
         toast('Config guardada', 'success');
@@ -144,35 +159,37 @@ async function saveGlobal(code) {
     }
 }
 
-function clearSecret(code, key, target) {
-    if (!clearedSecrets.value[code]) {
-        clearedSecrets.value[code] = [];
-    }
-
-    clearedSecrets.value[code].push(key);
-    target[key] = '';
+function toggleGlobalEnabled(code) {
+    enabledDraft.value[code] = !enabledDraft.value[code];
+    saveGlobal(code);
 }
 
-async function saveEvent(code, eventId) {
+function clearGlobalSecret(code, key) {
+    clearedGlobal.value[code] = [...(clearedGlobal.value[code] || []), key];
+    globalDrafts.value[code][key] = '';
+}
+
+async function saveEvent(code) {
+    const eventId = selectedEvent.value[code];
+
+    if (!eventId) {
+        return;
+    }
+
     const key = `${code}:${eventId}`;
-    const cleared = clearedSecrets.value[code]?.filter((k) => k.startsWith(`ev:${eventId}:`))
-        .map((k) => k.replace(`ev:${eventId}:`, '')) || [];
+    const clearToken = eventClearToken.value[code]?.[eventId];
 
     savingEvent.value[key] = true;
 
     try {
         await api.put(`tickets-admin/payment-methods/${code}/events/${eventId}`, {
-            enabled: globalDrafts.value.eventEna?.[key] ?? (methodProps(code).events.find((e) => e.event_id === eventId)?.enabled ?? true),
-            config: { access_token: eventDrafts.value[code]?.[eventId] || '' },
-            cleared_keys: cleared,
+            enabled: eventEnabled.value[code][eventId],
+            config: { access_token: eventDrafts.value[code][eventId] || '' },
+            cleared_keys: clearToken ? ['access_token'] : [],
         });
 
-        toast('Config del evento guardada', 'success');
-
-        if (code === 'multipago') {
-            await refreshWebhookUrl(eventId);
-        }
-
+        toast('Configuración del evento guardada', 'success');
+        eventClearToken.value[code][eventId] = false;
         await load();
     } catch (err) {
         toast(toError(err).message, 'danger');
@@ -181,24 +198,9 @@ async function saveEvent(code, eventId) {
     }
 }
 
-function toggleEvent(code, eventId, value) {
-    if (!globalDrafts.value.eventEna) {
-        globalDrafts.value.eventEna = {};
-    }
-
-    globalDrafts.value.eventEna[`${code}:${eventId}`] = value;
-}
-
 function clearEventSecret(code, eventId) {
     eventDrafts.value[code][eventId] = '';
-    storedEvent.value[code][eventId] = '';
-    clearedSecrets.value[code] = clearEventSecretHelper(code, eventId);
-}
-
-function clearEventSecretHelper(code, eventId) {
-    const list = clearedSecrets.value[code] || [];
-
-    return [...list.filter((k) => !k.startsWith(`ev:${eventId}:`)), `ev:${eventId}:access_token`];
+    eventClearToken.value[code][eventId] = true;
 }
 
 async function testMethod(code) {
@@ -226,7 +228,7 @@ async function validatePayments() {
 
         const s = data.summary;
         toast(
-            `Validacion: ${s.insertadas} insertadas · ${s.duplicadas} duplicadas · ${s.sin_procesar} sin procesar (${s.total} total).`,
+            `Validación: ${s.insertadas} insertadas · ${s.duplicadas} duplicadas · ${s.sin_procesar} sin procesar (${s.total} total).`,
             s.insertadas > 0 ? 'success' : 'info',
         );
     } catch (err) {
@@ -236,13 +238,14 @@ async function validatePayments() {
     }
 }
 
-async function refreshWebhookUrl(eventId) {
+async function regenerateWebhook(code) {
     try {
-        const { data } = await api.get(`tickets-admin/payment-methods/multipago/webhook-url/${eventId}`);
+        const { data } = await api.post(`tickets-admin/payment-methods/${code}/webhook-key/regenerate`);
 
-        webhookUrls.value[eventId] = data.url;
-    } catch {
-        webhookUrls.value[eventId] = '';
+        methodProps(code).webhook_url = data.url;
+        toast('Nueva URL de webhook generada. Actualizala en Multipago.', 'success');
+    } catch (err) {
+        toast(toError(err).message, 'danger');
     }
 }
 
@@ -260,14 +263,6 @@ function connectMpEvent(eventId) {
     window.location.href = `/tickets-admin/config/mp-authorize-url?event_id=${eventId}`;
 }
 
-function maskIfSecret(method, key, value) {
-    if (hasSecret(method, key)) {
-        return '••••••••';
-    }
-
-    return value;
-}
-
 onMounted(load);
 </script>
 
@@ -277,11 +272,8 @@ onMounted(load);
             <div>
                 <h2 class="h4 mb-1">Medios de pago</h2>
                 <p class="text-muted-2 small mb-0">
-                    Credenciales de cada proveedor y con que medios cobra cada evento.
+                    Credenciales de cada proveedor y con qué medios cobra cada evento.
                 </p>
-            </div>
-            <div class="form-check form-switch d-none">
-                <input class="form-check-input" type="checkbox">
             </div>
         </div>
 
@@ -295,7 +287,7 @@ onMounted(load);
                 :key="method.code"
                 class="et-surface-raised"
             >
-                <!-- Cabecera del acordeon -->
+                <!-- Cabecera del acordeón -->
                 <button
                     type="button"
                     class="payment-method-head"
@@ -306,23 +298,18 @@ onMounted(load);
 
                     <span
                         class="et-badge"
-                        :class="method.enabled ? 'et-badge--success' : 'et-badge--warning'"
+                        :class="enabledDraft[method.code] ? 'et-badge--success' : 'et-badge--warning'"
                         @click.stop
                     >
                         <label class="form-check form-switch form-switch-sm mb-0">
                             <input
                                 class="form-check-input"
                                 type="checkbox"
-                                :checked="method.enabled"
-                                @change="(ev) => {
-                                    globalDrafts.enabled = globalDrafts.enabled || {};
-                                    globalDrafts.enabled[method.code] = ev.target.checked;
-                                    method.enabled = ev.target.checked;
-                                    saveGlobal(method.code);
-                                }"
+                                :checked="enabledDraft[method.code]"
+                                @change="toggleGlobalEnabled(method.code)"
                             >
                         </label>
-                        {{ method.enabled ? 'Habilitado' : 'Deshabilitado' }}
+                        {{ enabledDraft[method.code] ? 'Habilitado' : 'Deshabilitado' }}
                     </span>
 
                     <span class="ms-auto">
@@ -336,7 +323,7 @@ onMounted(load);
                                 v-if="testing[method.code]"
                                 class="spinner-border spinner-border-sm me-1"
                             ></span>
-                            Probar conexion
+                            Probar conexión
                         </button>
                         <i
                             class="bi bi-chevron-down ms-2"
@@ -346,40 +333,6 @@ onMounted(load);
                 </button>
 
                 <div v-if="open[method.code]" class="p-3 border-top">
-                    <template v-if="method.code === 'multipago'">
-                        <div class="alert alert-info small py-2 mb-3">
-                            <span class="me-2">{{ method.name }}</span>
-                            <button
-                                type="button"
-                                class="btn btn-et-primary btn-sm"
-                                :disabled="validating"
-                                @click="validatePayments"
-                            >
-                                <span
-                                    v-if="validating"
-                                    class="spinner-border spinner-border-sm me-1"
-                                ></span>
-                                <i class="bi bi-arrow-repeat me-1"></i>
-                                Validar pagos (consultar_deuda)
-                            </button>
-                            <span class="d-inline-flex gap-1 ms-2 align-items-center">
-                                <input
-                                    type="date"
-                                    class="form-control form-control-sm"
-                                    style="width: auto"
-                                    v-model="validateFrom"
-                                >
-                                <span>a</span>
-                                <input
-                                    type="date"
-                                    class="form-control form-control-sm"
-                                    style="width: auto"
-                                    v-model="validateTo"
-                                >
-                            </span>
-                        </div>
-                    </template>
-
                     <!-- Config global del proveedor -->
                     <h3 class="h6 fw-bold mb-2">Cuenta del proveedor (global)</h3>
                     <div class="row g-2 align-items-end mb-2">
@@ -391,10 +344,10 @@ onMounted(load);
                             <label class="form-label small mb-1" :for="`${method.code}-${field.key}`">
                                 {{ field.label }}
                                 <button
-                                    v-if="hasSecret(method, field.key)"
+                                    v-if="hasGlobalSecret(method, field.key)"
                                     type="button"
                                     class="btn btn-link btn-sm p-0 ms-2 text-danger"
-                                    @click="clearSecret(method.code, field.key, globalDrafts[method.code])"
+                                    @click="clearGlobalSecret(method.code, field.key)"
                                 >
                                     Quitar
                                 </button>
@@ -406,16 +359,16 @@ onMounted(load);
                                 class="form-control form-control-sm"
                                 autocomplete="off"
                                 spellcheck="false"
-                                :placeholder="hasSecret(method, field.key)
-                                    ? '•••••••• (guardado)'
+                                :placeholder="hasGlobalSecret(method, field.key)
+                                    ? `${maskText()} (guardado)`
                                     : field.key"
                             >
                             <div
-                                v-if="hasSecret(method, field.key)"
+                                v-if="hasGlobalSecret(method, field.key)"
                                 class="form-text small text-success"
                             >
                                 <i class="bi bi-check-circle-fill me-1"></i>
-                                Secreto guardado. Dejalo vacio para no cambiarlo.
+                                Secreto guardado. Dejalo vacío para no cambiarlo.
                             </div>
                         </div>
                     </div>
@@ -433,121 +386,170 @@ onMounted(load);
                         Guardar config
                     </button>
 
+                    <!-- Webhook único (Multipago) -->
+                    <template v-if="method.webhook_url !== null && method.webhook_url !== undefined">
+                        <hr class="my-3">
+                        <h3 class="h6 fw-bold mb-1">Webhook (único)</h3>
+                        <p class="small text-muted-2 mb-2">
+                            Una sola URL para todos los eventos. Copiala en la configuración de {{ method.name }}.
+                        </p>
+                        <div v-if="method.webhook_url" class="input-group input-group-sm" style="max-width: 620px">
+                            <input
+                                :value="method.webhook_url"
+                                type="text"
+                                readonly
+                                class="form-control form-control-sm font-monospace"
+                                @focus="$event.target.select()"
+                            >
+                            <button
+                                type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                @click="copyToClipboard(method.webhook_url, `wh-${method.code}`)"
+                            >
+                                <i class="bi" :class="copied === `wh-${method.code}` ? 'bi-check' : 'bi-clipboard'"></i>
+                            </button>
+                            <button
+                                type="button"
+                                class="btn btn-outline-danger btn-sm"
+                                title="Rotar la key (invalida la URL anterior)"
+                                @click="regenerateWebhook(method.code)"
+                            >
+                                <i class="bi bi-arrow-repeat"></i>
+                            </button>
+                        </div>
+                        <span v-else class="small text-muted-2">Se generará al guardar la config.</span>
+                    </template>
+
+                    <!-- Validar pagos (Multipago) -->
+                    <template v-if="method.code === 'multipago'">
+                        <hr class="my-3">
+                        <h3 class="h6 fw-bold mb-1">Validar pagos</h3>
+                        <p class="small text-muted-2 mb-2">
+                            Consulta los cobros del período y acredita los pendientes (mismo camino que el webhook).
+                        </p>
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <button
+                                type="button"
+                                class="btn btn-et-primary btn-sm"
+                                :disabled="validating"
+                                @click="validatePayments"
+                            >
+                                <span
+                                    v-if="validating"
+                                    class="spinner-border spinner-border-sm me-1"
+                                ></span>
+                                <i class="bi bi-arrow-repeat me-1"></i>
+                                Validar pagos
+                            </button>
+                            <input type="date" class="form-control form-control-sm" style="width: auto" v-model="validateFrom">
+                            <span class="small">a</span>
+                            <input type="date" class="form-control form-control-sm" style="width: auto" v-model="validateTo">
+                        </div>
+                    </template>
+
                     <hr class="my-3">
 
                     <!-- Config por evento -->
                     <h3 class="h6 fw-bold mb-1">{{ FIELDS[method.code]?.eventTitle }}</h3>
                     <p class="small text-muted-2 mb-2">{{ FIELDS[method.code]?.eventHint }}</p>
 
-                    <div class="table-responsive">
-                        <table class="table table-sm align-middle mb-0">
-                            <thead>
-                                <tr>
-                                    <th>Evento</th>
-                                    <th style="width: 110px">Habilitado</th>
-                                    <th>Credencial del evento</th>
-                                    <th v-if="method.code === 'multipago'" style="width: 300px">Webhook URL</th>
-                                    <th style="width: 130px"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="event in method.events || []" :key="event.event_id">
-                                    <td>
-                                        <span class="fw-semibold">{{ event.event_name }}</span>
-                                    </td>
-                                    <td>
-                                        <div class="form-check form-switch">
-                                            <input
-                                                class="form-check-input"
-                                                type="checkbox"
-                                                :checked="globalDrafts.eventEna?.[`${method.code}:${event.event_id}`] ?? event.enabled"
-                                                @change="(ev) => {
-                                                    toggleEvent(method.code, event.event_id, ev.target.checked);
-                                                }"
-                                            >
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <template v-if="method.code === 'mercadopago'">
-                                            <div class="input-group input-group-sm">
-                                                <input
-                                                    v-model="eventDrafts[method.code][event.event_id]"
-                                                    type="text"
-                                                    class="form-control form-control-sm"
-                                                    autocomplete="off"
-                                                    spellcheck="false"
-                                                    :placeholder="eventHasToken(event, method.code)
-                                                        ? '•••••••• (token guardado)'
-                                                        : 'APP_USR-... o TEST-... (opcional)'"
-                                                >
-                                                <button
-                                                    v-if="eventHasToken(event, method.code)"
-                                                    type="button"
-                                                    class="btn btn-outline-danger btn-sm"
-                                                    title="Quitar token del evento"
-                                                    @click="clearEventSecret(method.code, event.event_id)"
-                                                >
-                                                    <i class="bi bi-trash"></i>
-                                                </button>
-                                            </div>
-                                            <div class="form-text small">
-                                                <button
-                                                    type="button"
-                                                    class="btn btn-link btn-sm p-0"
-                                                    @click="connectMpEvent(event.event_id)"
-                                                >
-                                                    Conectar via OAuth
-                                                </button>
-                                            </div>
-                                        </template>
-                                        <template v-else>
-                                            <span class="small text-muted-2">
-                                                La key se genera sola al guardar el evento.
-                                            </span>
-                                        </template>
-                                    </td>
-                                    <td v-if="method.code === 'multipago'">
-                                        <div v-if="webhookUrls[event.event_id]" class="input-group input-group-sm">
-                                            <input
-                                                :value="webhookUrls[event.event_id]"
-                                                type="text"
-                                                readonly
-                                                class="form-control form-control-sm font-monospace"
-                                                @focus="$event.target.select()"
-                                            >
-                                            <button
-                                                type="button"
-                                                class="btn btn-outline-secondary btn-sm"
-                                                @click="copyToClipboard(webhookUrls[event.event_id], `webhook-${event.event_id}`)"
-                                            >
-                                                <i
-                                                    class="bi"
-                                                    :class="copied === `webhook-${event.event_id}` ? 'bi-check' : 'bi-clipboard'"
-                                                ></i>
-                                            </button>
-                                        </div>
-                                        <span v-else class="small text-muted-2">
-                                            Guarda el evento para generar la URL.
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <button
-                                            type="button"
-                                            class="btn btn-et-primary btn-sm w-100"
-                                            :disabled="savingEvent[`${method.code}:${event.event_id}`]"
-                                            @click="saveEvent(method.code, event.event_id)"
-                                        >
-                                            <span
-                                                v-if="savingEvent[`${method.code}:${event.event_id}`]"
-                                                class="spinner-border spinner-border-sm me-1"
-                                            ></span>
-                                            Guardar
-                                        </button>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <div v-if="!eventsFor(method.code).length" class="small text-muted-2">
+                        No hay eventos cargados.
                     </div>
+
+                    <template v-else>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label small mb-1">Evento</label>
+                                <select
+                                    class="form-select form-select-sm"
+                                    v-model="selectedEvent[method.code]"
+                                >
+                                    <option :value="null" disabled>Seleccioná un evento…</option>
+                                    <option
+                                        v-for="event in eventsFor(method.code)"
+                                        :key="event.event_id"
+                                        :value="event.event_id"
+                                    >
+                                        {{ event.event_name }}
+                                    </option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="selectedEventObj(method.code)"
+                            class="border rounded p-3"
+                        >
+                            <div class="d-flex align-items-center justify-content-between mb-3">
+                                <span class="fw-semibold">{{ selectedEventObj(method.code).event_name }}</span>
+                                <label class="form-check form-switch mb-0">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="eventEnabled[method.code][selectedEvent[method.code]]"
+                                    >
+                                    <span class="ms-1 small">
+                                        {{ eventEnabled[method.code][selectedEvent[method.code]] ? 'Habilitado' : 'Deshabilitado' }}
+                                    </span>
+                                </label>
+                            </div>
+
+                            <template v-if="method.code === 'mercadopago'">
+                                <label class="form-label small mb-1">Access token del evento</label>
+                                <div class="input-group input-group-sm">
+                                    <input
+                                        v-model="eventDrafts[method.code][selectedEvent[method.code]]"
+                                        type="text"
+                                        class="form-control form-control-sm"
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                        :placeholder="eventHasToken(method.code, selectedEvent[method.code])
+                                            ? `${maskText()} (token guardado)`
+                                            : 'APP_USR-... o TEST-... (opcional)'"
+                                    >
+                                    <button
+                                        v-if="eventHasToken(method.code, selectedEvent[method.code])"
+                                        type="button"
+                                        class="btn btn-outline-danger btn-sm"
+                                        title="Quitar token del evento"
+                                        @click="clearEventSecret(method.code, selectedEvent[method.code])"
+                                    >
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                                <div class="form-text small">
+                                    Si lo dejás vacío, el evento usa el access token de la plataforma.
+                                    <button
+                                        type="button"
+                                        class="btn btn-link btn-sm p-0 ms-1"
+                                        @click="connectMpEvent(selectedEvent[method.code])"
+                                    >
+                                        Conectar vía OAuth
+                                    </button>
+                                </div>
+                            </template>
+
+                            <template v-else>
+                                <p class="small text-muted-2 mb-0">
+                                    Multipago no usa credenciales por evento: solo se habilita o deshabilita acá.
+                                </p>
+                            </template>
+
+                            <button
+                                type="button"
+                                class="btn btn-et-primary btn-sm mt-3"
+                                :disabled="savingEvent[`${method.code}:${selectedEvent[method.code]}`]"
+                                @click="saveEvent(method.code)"
+                            >
+                                <span
+                                    v-if="savingEvent[`${method.code}:${selectedEvent[method.code]}`]"
+                                    class="spinner-border spinner-border-sm me-1"
+                                ></span>
+                                Guardar evento
+                            </button>
+                        </div>
+                    </template>
                 </div>
             </section>
         </div>

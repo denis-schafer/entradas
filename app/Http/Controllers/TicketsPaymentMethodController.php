@@ -64,6 +64,7 @@ class TicketsPaymentMethodController extends Controller
                 'config' => $methodConfig,
                 'secret_keys' => $gateway->secretKeys(),
                 'mask' => self::MASK,
+                'webhook_url' => method_exists($gateway, 'webhookUrl') ? $gateway->webhookUrl() : null,
                 'events' => $eventRows,
             ];
         }
@@ -120,13 +121,6 @@ class TicketsPaymentMethodController extends Controller
         $current = $pivot ? (json_decode((string) ($pivot->config ?? '[]'), true) ?: []) : [];
         $incoming = $request->input('config', []);
         $cleared = $request->input('cleared_keys', []);
-
-        // Multipago: sin clave de webhook no hay entrada para el proveedor.
-        if ($gateway->code() === 'multipago'
-            && ! isset($current['webhook_key'])
-            && ! array_key_exists('webhook_key', $incoming)) {
-            $incoming['webhook_key'] = $gateway->generateWebhookKey();
-        }
 
         $config = $this->mergeSafe($current, $incoming, $cleared);
         $enabled = $request->has('enabled') ? $request->boolean('enabled') : ($pivot ? (int) $pivot->enabled === 1 : true);
@@ -206,14 +200,29 @@ class TicketsPaymentMethodController extends Controller
         }
     }
 
-    public function webhookUrl(string $code, int $eventId): JsonResponse
+    /**
+     * URL del webhook unico del medio (Multipago: una sola cuenta/URL).
+     */
+    public function webhookUrl(string $code): JsonResponse
     {
         $gateway = $this->gatewayOrFail($code);
-        $url = method_exists($gateway, 'webhookUrlForEvent')
-            ? $gateway->webhookUrlForEvent($eventId)
-            : '';
+        $url = method_exists($gateway, 'webhookUrl') ? $gateway->webhookUrl() : '';
 
         return response()->json(['url' => $url]);
+    }
+
+    /**
+     * Rota la key del webhook unico (invalida la URL anterior).
+     */
+    public function regenerateWebhookKey(string $code): JsonResponse
+    {
+        $gateway = $this->gatewayOrFail($code);
+
+        if (! method_exists($gateway, 'regenerateWebhookKey')) {
+            return response()->json(['message' => 'El medio no usa webhook'], 422);
+        }
+
+        return response()->json(['url' => $gateway->regenerateWebhookKey()]);
     }
 
     // ----------------------------------------------------------------- helpers

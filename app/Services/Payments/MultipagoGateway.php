@@ -15,8 +15,9 @@ use Illuminate\Support\Str;
  *         comercio(4) + cliente(large) + vencimiento ddmmaa(6) + importe sin
  *         coma(11) + DV modulo 10 (1).
  *   - Webhook en tiempo real: POST/GET con el JSON {customer_id, amount,
- *     identifier, fecha_pago}. Se identifica por la key de la URL (unica por
- *     evento) y se deduplica por identifier.
+ *     identifier, fecha_pago}. Es UNA sola URL para todos los eventos (una
+ *     cuenta de Multipago); se identifica por la key de la URL y se deduplica
+ *     por identifier. El evento surge de la orden resuelta por customer_id.
  *   - Consulta masiva: GET consultar_deuda/{bersacode}/{desde}/{hasta} con
  *     Basic Auth; se usa para "Validar pagos" desde el modulo.
  *
@@ -134,24 +135,12 @@ class MultipagoGateway extends PaymentGateway
     }
 
     /**
-     * URL publica del webhook del evento. La key es por evento: asi Multipago
-     * notifica de una URL distinta por organizador, sin secretos globales.
+     * Key del webhook UNICO de Multipago (una sola cuenta/URL para todos los
+     * eventos). Vive en la config global del metodo.
      */
-    public function webhookUrlForEvent(int $eventId): string
+    public function webhookKey(): string
     {
-        $base = rtrim((string) DB::table('tickets_configs')
-            ->where('name', 'payment_webhook_base')
-            ->value('value'), '/');
-
-        if ($base === '') {
-            $base = rtrim((string) config('app.url'), '/');
-        }
-
-        $key = trim((string) $this->resolveConfig($eventId, 'webhook_key', ''));
-
-        return $key === ''
-            ? ''
-            : $base.'/tickets/multipago/webhook/'.$eventId.'/'.$key;
+        return trim((string) ($this->methodConfig()['webhook_key'] ?? ''));
     }
 
     public function generateWebhookKey(): string
@@ -160,13 +149,83 @@ class MultipagoGateway extends PaymentGateway
     }
 
     /**
-     * Valida que la key de la URL coincida con la del evento.
+     * Devuelve la key del webhook, generandola y guardandola si aun no existe.
      */
-    public function webhookKeyMatches(int $eventId, string $key): bool
+    public function ensureWebhookKey(): string
     {
-        $expected = trim((string) $this->resolveConfig($eventId, 'webhook_key', ''));
+        $row = $this->methodRow();
+
+        if (! $row) {
+            return '';
+        }
+
+        $config = json_decode((string) ($row->config ?? '[]'), true) ?: [];
+
+        if (! empty($config['webhook_key'])) {
+            return (string) $config['webhook_key'];
+        }
+
+        $config['webhook_key'] = $this->generateWebhookKey();
+
+        DB::table('tickets_payment_methods')->where('id', $row->id)->update([
+            'config' => json_encode($config),
+            'updated_at' => now(),
+        ]);
+
+        return (string) $config['webhook_key'];
+    }
+
+    /**
+     * Rota la key del webhook (invalida la anterior).
+     */
+    public function regenerateWebhookKey(): string
+    {
+        $row = $this->methodRow();
+
+        if ($row) {
+            $config = json_decode((string) ($row->config ?? '[]'), true) ?: [];
+            $config['webhook_key'] = $this->generateWebhookKey();
+
+            DB::table('tickets_payment_methods')->where('id', $row->id)->update([
+                'config' => json_encode($config),
+                'updated_at' => now(),
+            ]);
+        }
+
+        return $this->webhookUrl();
+    }
+
+    /**
+     * URL publica unica del webhook. Una sola cuenta para todos los eventos.
+     */
+    public function webhookUrl(): string
+    {
+        $key = $this->ensureWebhookKey();
+
+        if ($key === '') {
+            return '';
+        }
+
+        return $this->webhookBase().'/tickets/multipago/webhook/'.$key;
+    }
+
+    /**
+     * Valida que la key de la URL coincida con la global del metodo.
+     */
+    public function webhookKeyMatches(string $key): bool
+    {
+        $expected = $this->webhookKey();
 
         return $expected !== '' && hash_equals($expected, $key);
+    }
+
+    private function webhookBase(): string
+    {
+        $base = rtrim((string) DB::table('tickets_configs')
+            ->where('name', 'payment_webhook_base')
+            ->value('value'), '/');
+
+        return $base !== '' ? $base : rtrim((string) config('app.url'), '/');
     }
 
     /**

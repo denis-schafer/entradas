@@ -52,11 +52,12 @@ Route::prefix('tickets/mp')->name('tickets.mp.')->group(function () {
 
 // ---------------------------------------------------------------- Multipago
 // Notificaciones en tiempo real, GET o POST, sin sesion y sin CSRF (ver
-// bootstrap/app.php). La URL por evento lleva una key aleatoria: lo unico que
-// distingue un evento legitimo de un tercero que escribe a lo loco.
+// bootstrap/app.php). Multipago usa UNA sola cuenta y UNA sola URL para todos
+// los eventos; la key aleatoria distingue la instalacion. El evento surge de
+// la orden resuelta por customer_id.
 Route::prefix('tickets/multipago')->name('tickets.multipago.')->group(function () {
-    Route::match(['get', 'post'], 'webhook/{event_id}/{key}', [TicketsMultipagoController::class, 'webhook'])
-        ->whereNumber('event_id')->name('webhook');
+    Route::match(['get', 'post'], 'webhook/{key}', [TicketsMultipagoController::class, 'webhook'])
+        ->name('webhook');
 });
 
 // ---------------------------------------------------------------- Panel
@@ -168,7 +169,8 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             Route::put('payment-methods/{code}/events/{eventId}', [TicketsPaymentMethodController::class, 'updateEvent'])->whereNumber('eventId')->name('payment-methods.update-event');
             Route::post('payment-methods/{code}/test', [TicketsPaymentMethodController::class, 'test'])->name('payment-methods.test');
             Route::post('payment-methods/{code}/validate', [TicketsPaymentMethodController::class, 'validatePayments'])->name('payment-methods.validate');
-            Route::get('payment-methods/{code}/webhook-url/{eventId}', [TicketsPaymentMethodController::class, 'webhookUrl'])->whereNumber('eventId')->name('payment-methods.webhook-url');
+            Route::get('payment-methods/{code}/webhook-url', [TicketsPaymentMethodController::class, 'webhookUrl'])->name('payment-methods.webhook-url');
+            Route::post('payment-methods/{code}/webhook-key/regenerate', [TicketsPaymentMethodController::class, 'regenerateWebhookKey'])->name('payment-methods.webhook-key');
         });
     });
 });
