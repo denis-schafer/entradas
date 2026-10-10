@@ -148,7 +148,17 @@ class TicketsPaymentMethodController extends Controller
             return $this->testMultipago($gateway);
         }
 
-        return $this->testMercadoPago($gateway);
+        $eventId = $request->integer('event_id') ?: null;
+
+        // Permite probar un token recien tipeado, sin guardarlo.
+        $explicit = $request->input('access_token');
+        $explicit = is_string($explicit) ? trim($explicit) : '';
+
+        if ($explicit === '' || $explicit === self::MASK) {
+            $explicit = null;
+        }
+
+        return $this->testMercadoPago($gateway, $eventId, $explicit);
     }
 
     /**
@@ -260,14 +270,26 @@ class TicketsPaymentMethodController extends Controller
         return $current;
     }
 
-    private function testMercadoPago($gateway): JsonResponse
+    private function testMercadoPago($gateway, ?int $eventId = null, ?string $explicit = null): JsonResponse
     {
-        $token = method_exists($gateway, 'eventToken') ? $gateway->platformToken() : null;
+        if ($explicit !== null) {
+            $token = $explicit;
+            $source = $eventId ? 'el token ingresado (sin guardar)' : 'el access_token ingresado';
+        } elseif ($eventId) {
+            $own = method_exists($gateway, 'ownEventToken') ? $gateway->ownEventToken($eventId) : null;
+            $token = $own ?? (method_exists($gateway, 'platformToken') ? $gateway->platformToken() : null);
+            $source = $own !== null
+                ? 'token OAuth del evento'
+                : 'cuenta de la plataforma (el evento no tiene token propio)';
+        } else {
+            $token = method_exists($gateway, 'platformToken') ? $gateway->platformToken() : null;
+            $source = 'cuenta de la plataforma';
+        }
 
         if (empty($token)) {
             return response()->json([
                 'ok' => false,
-                'message' => 'No hay access_token de plataforma guardado.',
+                'message' => 'No hay access_token guardado para '.$source.'.',
             ], 422);
         }
 
@@ -281,13 +303,13 @@ class TicketsPaymentMethodController extends Controller
 
                 return response()->json([
                     'ok' => true,
-                    'message' => 'Conexion OK (MP user '.$id.' @'.$nickname.').',
+                    'message' => 'Conexión OK ('.$source.': MP user '.$id.' @'.$nickname.').',
                 ]);
             }
 
             return response()->json([
                 'ok' => false,
-                'message' => 'MP respondio '.$response->status().'. Revisa el access_token.',
+                'message' => 'MP respondió '.$response->status().' con '.$source.'. Revisá el access_token.',
             ], 422);
         } catch (\Throwable $e) {
             return response()->json(['ok' => false, 'message' => 'Error: '.$e->getMessage()], 500);

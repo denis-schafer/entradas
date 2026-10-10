@@ -31,12 +31,12 @@ const selectedEvent = ref({});
 const FIELDS = {
     mercadopago: {
         global: [
-            { key: 'client_id', label: 'Client ID (OAuth)', secret: false },
-            { key: 'client_secret', label: 'Client Secret (OAuth)', secret: true },
-            { key: 'platform_access_token', label: 'Access token de la plataforma', secret: true },
+            { key: 'client_id', label: 'Client ID (credenciales de desarrollo)', secret: false },
+            { key: 'client_secret', label: 'Client Secret (credenciales de desarrollo)', secret: true },
+            { key: 'platform_access_token', label: 'Access token de mi cuenta (se usa si el evento no tiene token propio)', secret: true },
         ],
         eventTitle: 'Configuración por evento',
-        eventHint: 'Elegí un evento para ver y editar su configuración particular (token OAuth propio, habilitado, etc.).',
+        eventHint: 'Elegí un evento para cargar su token OAuth, probarlo, o dejarlo en la cuenta de la plataforma.',
     },
     multipago: {
         global: [
@@ -203,18 +203,38 @@ function clearEventSecret(code, eventId) {
     eventClearToken.value[code][eventId] = true;
 }
 
-async function testMethod(code) {
-    testing.value[code] = true;
+async function testMethod(code, eventId = null, token = null) {
+    const key = eventId ? `${code}:${eventId}` : code;
+
+    testing.value[key] = true;
 
     try {
-        const { data } = await api.post(`tickets-admin/payment-methods/${code}/test`);
+        const payload = {};
+
+        if (eventId) {
+            payload.event_id = eventId;
+        }
+
+        if (token) {
+            payload.access_token = token;
+        }
+
+        const { data } = await api.post(`tickets-admin/payment-methods/${code}/test`, payload);
 
         toast(data.message, data.ok ? 'success' : 'danger');
     } catch (err) {
         toast(toError(err).message, 'danger');
     } finally {
-        testing.value[code] = false;
+        testing.value[key] = false;
     }
+}
+
+/* Token tipeado (no guardado) para el evento seleccionado, o null. */
+function eventTestToken(code) {
+    const id = selectedEvent.value[code];
+    const draft = eventDrafts.value[code]?.[id] || '';
+
+    return draft && !isMask(draft) ? draft : null;
 }
 
 async function validatePayments() {
@@ -313,18 +333,6 @@ onMounted(load);
                     </span>
 
                     <span class="ms-auto">
-                        <button
-                            type="button"
-                            class="btn btn-et-ghost btn-sm"
-                            @click.stop="testMethod(method.code)"
-                            :disabled="testing[method.code]"
-                        >
-                            <span
-                                v-if="testing[method.code]"
-                                class="spinner-border spinner-border-sm me-1"
-                            ></span>
-                            Probar conexión
-                        </button>
                         <i
                             class="bi bi-chevron-down ms-2"
                             :class="{ 'is-open': open[method.code] }"
@@ -373,18 +381,32 @@ onMounted(load);
                         </div>
                     </div>
 
-                    <button
-                        type="button"
-                        class="btn btn-et-primary btn-sm"
-                        :disabled="saving[method.code]"
-                        @click="saveGlobal(method.code)"
-                    >
-                        <span
-                            v-if="saving[method.code]"
-                            class="spinner-border spinner-border-sm me-1"
-                        ></span>
-                        Guardar config
-                    </button>
+                    <div class="d-flex gap-2">
+                        <button
+                            type="button"
+                            class="btn btn-et-primary btn-sm"
+                            :disabled="saving[method.code]"
+                            @click="saveGlobal(method.code)"
+                        >
+                            <span
+                                v-if="saving[method.code]"
+                                class="spinner-border spinner-border-sm me-1"
+                            ></span>
+                            Guardar config
+                        </button>
+                        <button
+                            type="button"
+                            class="btn btn-et-ghost btn-sm"
+                            :disabled="testing[method.code]"
+                            @click="testMethod(method.code)"
+                        >
+                            <span
+                                v-if="testing[method.code]"
+                                class="spinner-border spinner-border-sm me-1"
+                            ></span>
+                            Probar conexión
+                        </button>
+                    </div>
 
                     <!-- Webhook único (Multipago) -->
                     <template v-if="method.webhook_url !== null && method.webhook_url !== undefined">
@@ -536,18 +558,33 @@ onMounted(load);
                                 </p>
                             </template>
 
-                            <button
-                                type="button"
-                                class="btn btn-et-primary btn-sm mt-3"
-                                :disabled="savingEvent[`${method.code}:${selectedEvent[method.code]}`]"
-                                @click="saveEvent(method.code)"
-                            >
-                                <span
-                                    v-if="savingEvent[`${method.code}:${selectedEvent[method.code]}`]"
-                                    class="spinner-border spinner-border-sm me-1"
-                                ></span>
-                                Guardar evento
-                            </button>
+                            <div class="d-flex gap-2 mt-3">
+                                <button
+                                    type="button"
+                                    class="btn btn-et-primary btn-sm"
+                                    :disabled="savingEvent[`${method.code}:${selectedEvent[method.code]}`]"
+                                    @click="saveEvent(method.code)"
+                                >
+                                    <span
+                                        v-if="savingEvent[`${method.code}:${selectedEvent[method.code]}`]"
+                                        class="spinner-border spinner-border-sm me-1"
+                                    ></span>
+                                    Guardar evento
+                                </button>
+                                <button
+                                    v-if="method.code === 'mercadopago'"
+                                    type="button"
+                                    class="btn btn-et-ghost btn-sm"
+                                    :disabled="testing[`${method.code}:${selectedEvent[method.code]}`]"
+                                    @click="testMethod(method.code, selectedEvent[method.code], eventTestToken(method.code))"
+                                >
+                                    <span
+                                        v-if="testing[`${method.code}:${selectedEvent[method.code]}`]"
+                                        class="spinner-border spinner-border-sm me-1"
+                                    ></span>
+                                    Probar conexión
+                                </button>
+                            </div>
                         </div>
                     </template>
                 </div>

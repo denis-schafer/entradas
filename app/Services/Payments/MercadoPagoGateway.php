@@ -59,6 +59,14 @@ class MercadoPagoGateway extends PaymentGateway
         return MercadoPagoToken::forEvent(DB::table('tickets_events')->where('id', $eventId)->first());
     }
 
+    /**
+     * Token propio del evento (OAuth), SIN caer a la plataforma.
+     */
+    public function ownEventToken(int $eventId): ?string
+    {
+        return MercadoPagoToken::ownEventToken($eventId);
+    }
+
     public function storeEventToken(int $eventId, ?string $token): void
     {
         MercadoPagoToken::storeForEvent($eventId, $token);
