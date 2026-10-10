@@ -245,8 +245,8 @@ class TicketsConfigController extends Controller
             ]);
         }
 
-        $event = DB::table('tickets_events')->where('id', $eventId)->first(['mp_access_token']);
-        $eventConnected = ! empty($event?->mp_access_token);
+        $event = DB::table('tickets_events')->where('id', $eventId)->first(['id']);
+        $eventConnected = MercadoPagoToken::ownEventToken($eventId) !== null;
 
         return response()->json([
             'connected' => $eventConnected,
@@ -292,8 +292,7 @@ class TicketsConfigController extends Controller
                 return response()->json(['message' => 'Falta token o event_id'], 422);
             }
 
-            $event = DB::table('tickets_events')->where('id', $eventId)->first(['mp_access_token']);
-            $accessToken = trim((string) ($event?->mp_access_token ?? ''));
+            $accessToken = trim((string) (MercadoPagoToken::ownEventToken($eventId) ?? ''));
 
             if ($accessToken === '') {
                 return response()->json(['message' => 'El evento no tiene token guardado'], 422);

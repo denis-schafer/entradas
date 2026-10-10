@@ -33,17 +33,15 @@ const form = reactive({
     cover_image: '',
     status: 'draft',
     /*
-    * Access token de MercadoPago del organizador. OAuth lo guarda aca
-    * (viene del code que devuelve MP). Tambien se puede pegar a mano.
+    * La config de pago (MercadoPago, Multipago...) ya no se edita aca: vive en
+    * el modulo "Medios de pago". Este formulario solo muestra un resumen.
     */
-    mp_access_token: '',
 });
 
 const mpHasClientId = ref(false);
 const mpConnected = ref(false);
 const mpConnecting = ref(false);
 const testingEventMp = ref(false);
-const mpDisconnect = ref(false);
 // El evento no tiene token propio pero hay token de la plataforma: cobra la
 // cuenta de la plataforma.
 const mpUsesPlatform = ref(false);
@@ -102,14 +100,7 @@ async function load() {
         const { data } = await api.get(`tickets-admin/events/${props.id}`);
 
         Object.keys(form).forEach((key) => {
-            let value = data[key] ?? '';
-
-            // El backend enmascara mp_access_token como '__set__' cuando esta
-            // cargado, para no exponer el secreto. Mostramos el input vacio
-            // y dejamos que el badge indique que ya hay token.
-            if (key === 'mp_access_token' && value === '__set__') {
-                value = '';
-            }
+            const value = data[key] ?? '';
 
             form[key] = (key === 'starts_at' || key === 'ends_at')
                 ? toLocalInput(data[key])
@@ -158,15 +149,6 @@ async function save() {
         capacity: form.capacity ? Number(form.capacity) : null,
         cover_image: form.cover_image || null,
         status: form.status,
-        /*
-        | mp_access_token: el frontend arranca el form con string vacio (el
-        | backend lo enmascara como "__set__" para no exponer el secreto).
-        | Cuando el operador pega un token nuevo, queremos que vaya. Si lo
-        | deja vacio y antes habia token, lo manda vacio y se borra.
-        */
-        mp_access_token: mpDisconnect.value
-            ? '__disconnect__'
-            : (form.mp_access_token || null),
     };
 
     try {
@@ -278,18 +260,12 @@ async function connectMp() {
 }
 
 /*
- * Llama a MP con el access_token del input si hay uno escrito: sirve para
- * iterar sin guardar (si falla, no perdi el valor real todavia). Si el
- * input esta vacio, prueba el token ya guardado en el evento, que es el
- * caso normal tras el OAuth (el backend enmascara el token como __set__
- * y el input queda limpio).
+ * Llama a MP con el access_token guardado del evento: sirve para confirmar que
+ * el token que cargo el organizador sigue operativo.
  */
 async function testEventMp() {
-    const token = form.mp_access_token?.trim();
-    const useStored = !token && mpConnected.value;
-
-    if (!token && !useStored) {
-        toast('Pega un Access token antes de probar.', 'warning');
+    if (!mpConnected.value) {
+        toast('No hay token de MercadoPago para este evento.', 'warning');
 
         return;
     }
@@ -299,10 +275,10 @@ async function testEventMp() {
     try {
         const { data } = await api.post(
             'tickets-admin/config/mp-test',
-            token ? { token } : { event_id: Number(props.id) },
+            { event_id: Number(props.id) },
         );
 
-        const origin = data.source === 'stored' ? 'Token guardado del evento' : 'Token pegado';
+        const origin = data.source === 'stored' ? 'Token guardado del evento' : 'Token de la cuenta';
 
         if (data.ok) {
             toast(`${origin} operativo (${data.token_prefix}). MP respondio correctamente.`, 'success');
@@ -316,14 +292,8 @@ async function testEventMp() {
     }
 }
 
-/*
- * Marca el token del evento para borrar: el payload manda el sentinel
- * "__disconnect__" y el backend lo setea null. El borrado recien se aplica al
- * guardar el evento, por eso el aviso queda hasta apretar "Guardar cambios".
- */
-function disconnectMp() {
-    mpDisconnect.value = true;
-    form.mp_access_token = '';
+function goPaymentMethods() {
+    emit('navigate', 'payment-methods');
 }
 
 function publish() {
@@ -866,50 +836,75 @@ onMounted(async () => {
                     </section>
 
                     <section v-if="!isNew" class="et-surface-raised p-3 mb-3">
-                        <h2 class="h6 fw-bold mb-3">MercadoPago</h2>
+                        <h2 class="h6 fw-bold mb-3">Medios de pago</h2>
 
                         <p class="small text-muted-2 mb-2">
-                            Cada evento puede cobrar con su propia cuenta de MP.
-                            Conectala via el botón de OAuth, o pega el
-                            <strong>Access token</strong> a mano. Si no hay token
-                            propio, se usa la cuenta de la plataforma.
+                            La configuracion de cobro (MercadoPago, Multipago...)
+                            se administra en el modulo
+                            <strong>Medios de pago</strong>. Aca solo se ve el
+                            estado.
                         </p>
 
-                        <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
                             <span
                                 v-if="mpConnected"
                                 class="et-badge et-badge--success"
                             >
-                                Conectado
+                                Conectado a MercadoPago
                             </span>
                             <span
                                 v-else-if="mpUsesPlatform"
                                 class="et-badge et-badge--info"
                             >
-                                Usa la cuenta de la plataforma
+                                Cobra con la cuenta de la plataforma
                             </span>
                             <span v-else class="et-badge et-badge--warning">
-                                Sin token
+                                Sin medio de pago configurado
                             </span>
+                        </div>
 
+                        <p
+                            v-if="mpConnected"
+                            class="small mt-2 mb-2"
+                            style="color: var(--et-text-muted)"
+                        >
+                            Los cobros de este evento caen en la cuenta de MP
+                            conectada para el evento.
+                        </p>
+                        <p
+                            v-else-if="mpUsesPlatform"
+                            class="small mt-2 mb-2"
+                            style="color: var(--et-info, #0d6efd)"
+                        >
+                            <i class="bi bi-info-circle me-1"></i>
+                            El evento no tiene cuenta propia: los cobros caen en
+                            la cuenta de la plataforma (tambien se administra en
+                            el modulo).
+                        </p>
+                        <p
+                            v-else
+                            class="small mt-2 mb-2"
+                            style="color: var(--et-warning, #b8860b)"
+                        >
+                            <i class="bi bi-exclamation-triangle me-1"></i>
+                            Mientras no haya un medio habilitado, los compradores
+                            no podran pagar este evento.
+                        </p>
+
+                        <div class="btn-toolbar gap-2 mt-3">
                             <button
-                                v-if="!mpConnected && mpHasClientId"
                                 type="button"
-                                class="btn btn-et-primary btn-sm ms-auto"
-                                :disabled="mpConnecting"
-                                @click="connectMp"
+                                class="btn btn-et-primary btn-sm"
+                                @click="goPaymentMethods"
                             >
-                                <span
-                                    v-if="mpConnecting"
-                                    class="spinner-border spinner-border-sm me-1"
-                                ></span>
-                                Conectar con MP
+                                <i class="bi bi-credit-card me-1"></i>
+                                Ir a Medios de pago
                             </button>
 
                             <button
                                 v-if="mpConnected"
                                 type="button"
-                                class="btn btn-et-ghost btn-sm ms-auto"
+                                class="btn btn-et-ghost btn-sm"
                                 :disabled="testingEventMp"
                                 @click="testEventMp"
                             >
@@ -917,94 +912,23 @@ onMounted(async () => {
                                     v-if="testingEventMp"
                                     class="spinner-border spinner-border-sm me-1"
                                 ></span>
-                                Probar
+                                Probar MP
+                            </button>
+
+                            <button
+                                v-if="!mpConnected && mpHasClientId"
+                                type="button"
+                                class="btn btn-et-ghost btn-sm"
+                                :disabled="mpConnecting"
+                                @click="connectMp"
+                            >
+                                <span
+                                    v-if="mpConnecting"
+                                    class="spinner-border spinner-border-sm me-1"
+                                ></span>
+                                Conectar cuenta de MP
                             </button>
                         </div>
-
-                        <div class="input-group input-group-sm">
-                            <input
-                                v-model="form.mp_access_token"
-                                type="text"
-                                class="form-control form-control-sm"
-                                autocomplete="off"
-                                spellcheck="false"
-                                :placeholder="mpConnected
-                                    ? 'Pegá uno nuevo para reemplazar'
-                                    : 'APP_USR-... o TEST-...'"
-                                :disabled="mpDisconnect"
-                            >
-                            <span
-                                v-if="mpConnected && !mpDisconnect"
-                                class="input-group-text text-success"
-                                title="Hay un token guardado"
-                            >
-                                <i class="bi bi-check-circle-fill"></i>
-                            </span>
-                            <button
-                                v-if="mpConnected && !mpDisconnect"
-                                type="button"
-                                class="btn btn-outline-danger btn-sm"
-                                title="Eliminar el token guardado"
-                                @click="disconnectMp"
-                            >
-                                <i class="bi bi-trash"></i>
-                            </button>
-                            <button
-                                v-if="mpDisconnect"
-                                type="button"
-                                class="btn btn-outline-secondary btn-sm"
-                                @click="mpDisconnect = false"
-                            >
-                                Cancelar
-                            </button>
-                        </div>
-
-                        <p
-                            v-if="mpDisconnect"
-                            class="small mt-2 mb-0"
-                            style="color: var(--et-danger)"
-                        >
-                            <i class="bi bi-exclamation-triangle me-1"></i>
-                            El token guardado se elimina al apretar
-                            <strong>Guardar cambios</strong>.
-                        </p>
-
-                        <p v-else class="form-text mb-0 mt-2">
-                            Lo sacas de la cuenta de MP del organizador &raquo;
-                            <strong>Tus integraciones</strong> &raquo; <strong>Credenciales</strong>.
-                            Empieza con <code>APP_USR-</code> (produccion) o <code>TEST-</code> (pruebas).
-                            Queda guardado al apretar <strong>Guardar cambios</strong> del evento.
-                        </p>
-
-                        <p
-                            v-if="!mpConnected && mpUsesPlatform"
-                            class="small mt-2 mb-0"
-                            style="color: var(--et-info, #0d6efd)"
-                        >
-                            <i class="bi bi-info-circle me-1"></i>
-                            Este evento no tiene cuenta propia: los cobros caen en la
-                            cuenta de la plataforma.
-                        </p>
-
-                        <p
-                            v-else-if="!mpConnected && !mpHasClientId"
-                            class="small mt-2 mb-0"
-                            style="color: var(--et-warning, #b8860b)"
-                        >
-                            <i class="bi bi-exclamation-triangle me-1"></i>
-                            La app MP no esta registrada en el servidor
-                            (<code>MP_CLIENT_ID</code> en <code>.env</code>), asi que el boton
-                            "Conectar con MP" no funciona. Pega el token a mano.
-                        </p>
-
-                        <p
-                            v-else-if="!mpConnected"
-                            class="small mt-2 mb-0"
-                            style="color: var(--et-warning, #b8860b)"
-                        >
-                            <i class="bi bi-exclamation-triangle me-1"></i>
-                            Mientras este vacio, los compradores no podran pagar este evento.
-                        </p>
                     </section>
 
                     <section class="et-surface-raised p-3">

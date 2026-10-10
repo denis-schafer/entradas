@@ -19,7 +19,7 @@ class TicketsOrderController extends Controller
             ->select([
                 'o.id', 'o.public_token', 'o.buyer_name', 'o.buyer_email', 'o.buyer_dni',
                 'o.total', 'o.status', 'o.payment_mode', 'o.installment_count',
-                'o.mp_payment_id', 'o.paid_at', 'o.created_at', 'o.event_id',
+                'o.payment_external_id', 'o.paid_at', 'o.created_at', 'o.event_id',
                 'e.name as event_name',
             ])
             ->orderByDesc('o.id');
@@ -29,7 +29,7 @@ class TicketsOrderController extends Controller
                 $q->where('o.buyer_name', 'like', "%{$search}%")
                     ->orWhere('o.buyer_email', 'like', "%{$search}%")
                     ->orWhere('o.buyer_dni', 'like', "%{$search}%")
-                    ->orWhere('o.mp_payment_id', 'like', "%{$search}%");
+                    ->orWhere('o.payment_external_id', 'like', "%{$search}%");
             });
         }
 
@@ -108,7 +108,7 @@ class TicketsOrderController extends Controller
             return response()->json([
                 'message' => 'La orden ya esta marcada como pagada.',
                 'order_id' => $order->id,
-                'mp_payment_id' => $order->mp_payment_id,
+                'payment_external_id' => $order->payment_external_id,
                 'paid_at' => $order->paid_at,
             ]);
         }
@@ -213,8 +213,8 @@ class TicketsOrderController extends Controller
                     ? 'Orden pagada. Estaba cancelada y se reactivo la reserva.'
                     : 'Orden pagada y marcada como tal.',
                 'order_id' => $order->id,
-                'mp_payment_id' => $approved['id'],
-                'mp_transaction_amount' => $approved['transaction_amount'] ?? null,
+                'payment_external_id' => $approved['id'],
+                'payment_amount' => $approved['transaction_amount'] ?? null,
                 'was_cancelled' => $result['was_cancelled'],
             ]);
         } catch (\Throwable $e) {

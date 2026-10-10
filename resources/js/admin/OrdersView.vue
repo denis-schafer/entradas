@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
                         <dd class="numeric">{{ detail.paid_at ? formatDate(detail.paid_at) : '—' }}</dd>
 
                         <dt>Pago MP</dt>
-                        <dd class="numeric">{{ detail.mp_payment_id || '—' }}</dd>
+                        <dd class="numeric">{{ detail.payment_external_id || '—' }}</dd>
 
                         <dt>Forma</dt>
                         <dd>{{ paymentLabel(detail) }}</dd>

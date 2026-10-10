@@ -67,7 +67,7 @@ class TicketsEventController extends Controller
         | Ademas informamos si no tiene token propio pero hay token de
         | plataforma: asi la UI muestra que "cobra con cuenta de la plataforma".
         */
-        $eventConnected = ! empty($event->mp_access_token);
+        $eventConnected = MercadoPagoToken::ownEventToken($id) !== null;
         $platformToken = MercadoPagoToken::platform();
 
         if ($eventConnected) {
@@ -110,12 +110,20 @@ class TicketsEventController extends Controller
         // hay que convertir a la zona de la app antes de insertar.
         $validated = DateInput::normalize($validated, ['starts_at', 'ends_at']);
 
+        $mpToken = $validated['mp_access_token'] ?? null;
+        unset($validated['mp_access_token']);
+
         $id = DB::table('tickets_events')->insertGetId([
             ...$validated,
             'slug' => $this->uniqueSlug($validated['name']),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        // El token del evento (si vino) se guarda en el pivote de medios.
+        if (! empty($mpToken)) {
+            MercadoPagoToken::storeForEvent($id, $mpToken);
+        }
 
         Realtime::eventStatus($id, $validated['status'], $validated['cover_image'] ?? null);
 
@@ -151,24 +159,20 @@ class TicketsEventController extends Controller
         }
 
         /*
-        | El frontend enmascara el token con '__set__' cuando ya esta cargado
-        | (asi no expone el secreto en la respuesta). Tambien puede llegar
-        | null o vacio cuando el operador no toco el campo: eso significa
-        | "no quiero cambiar el token guardado", nunca "borrar lo que tengo".
-        |
-        | El unico caso en el que SI se borra es cuando el operador tilda
-        | "Desconectar MercadoPago" en el form: ahi llega el sentinel
-        | '__disconnect__' y se setea null a proposito.
-        |
-        | Antes solo se protegia el caso '__set__'. El resto caia en el update()
-        | y pisaba el token a null, borrando la conexion con MP en cada
-        | guardado del evento (incluso sin modificar el campo).
+        | El token de MP por evento ya no vive en tickets_events: se guarda en
+        | el pivote de medios de pago (MercadoPagoToken::storeForEvent), que es
+        | de donde lo lee el flujo de cobro. Este campo se acepta por
+        | compatibilidad con pedidos viejos del form.
         */
         $mpToken = $validated['mp_access_token'] ?? null;
 
         if ($mpToken === '__disconnect__') {
-            $validated['mp_access_token'] = null;
-        } elseif ($mpToken === '__set__' || $mpToken === null || $mpToken === '') {
+            MercadoPagoToken::storeForEvent($id, null);
+            unset($validated['mp_access_token']);
+        } elseif ($mpToken !== null && $mpToken !== '' && $mpToken !== '__set__') {
+            MercadoPagoToken::storeForEvent($id, $mpToken);
+            unset($validated['mp_access_token']);
+        } else {
             unset($validated['mp_access_token']);
         }
 

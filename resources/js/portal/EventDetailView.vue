@@ -193,21 +193,43 @@ function goToCheckout() {
                 event_id: Number(event.value.id),
             });
 
-            const { data: preference } = await api.post(
-                `tickets-portal/api/orders/${order.order_id}/preference`
+            /* Medios habilitados para el evento: con un unico MP se salta
+            directo a su checkout; con Multipago (o varios) se pasa por la
+            pantalla de eleccion. */
+            const { data: pm } = await api.get(
+                `tickets-portal/api/orders/${order.order_id}/payment-methods`
             );
 
-            const target = preference.init_point || preference.sandbox_init_point;
+            const methods = pm.methods || [];
 
-            if (!target) {
-                buyError.value = 'MercadoPago no devolvio una URL de pago. Intenta de nuevo.';
-
+            if (methods.length === 0) {
+                buyError.value = 'Este evento no tiene medios de pago habilitados por el momento.';
                 buying.value = false;
 
                 return;
             }
 
-            window.location.href = target;
+            if (methods.length === 1 && methods[0].type === 'redirect') {
+                const { data: preference } = await api.post(
+                    `tickets-portal/api/orders/${order.order_id}/preference`
+                );
+
+                const target = preference.init_point || preference.sandbox_init_point;
+
+                if (!target) {
+                    buyError.value = 'El medio no devolvio una URL de pago. Intenta de nuevo.';
+                    buying.value = false;
+
+                    return;
+                }
+
+                window.location.href = target;
+
+                return;
+            }
+
+            buying.value = false;
+            emit('navigate', 'payment', { id: order.order_id });
         } catch (err) {
             buyError.value = toError(err).message;
             buying.value = false;

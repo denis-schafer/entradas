@@ -26,6 +26,7 @@ class TicketsConfigSeeder extends Seeder
         ['terms_url', '', 'text'],
         ['privacy_url', '', 'text'],
         ['redirect_uri', '', 'text'],
+        ['payment_webhook_base', 'https://entradas.erden.com.ar', 'text'],
         ['mp_access_token', '', 'text'],
         ['mp_webhook_secret', '', 'text'],
         ['qr_secret', '', 'text'],

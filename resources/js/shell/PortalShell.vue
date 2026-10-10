@@ -18,6 +18,7 @@ import { destroyRealtime, realtimeState } from '../realtime.js';
 import api from '../api.js';
 import EventListView from '../portal/EventListView.vue';
 import EventDetailView from '../portal/EventDetailView.vue';
+import PaymentView from '../portal/PaymentView.vue';
 import OrderResultView from '../portal/OrderResultView.vue';
 import MyTicketsView from '../portal/MyTicketsView.vue';
 import MyOrdersView from '../portal/MyOrdersView.vue';
@@ -49,6 +50,7 @@ const route = useRoute;
 const VIEWS = {
     events: EventListView,
     event: EventDetailView,
+    payment: PaymentView,
     'order-result': OrderResultView,
     'my-tickets': MyTicketsView,
     'my-orders': MyOrdersView,

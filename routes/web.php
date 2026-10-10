@@ -5,11 +5,14 @@ use App\Http\Controllers\Portal\TicketPortalEventController;
 use App\Http\Controllers\Portal\TicketPortalOrderController;
 use App\Http\Controllers\TicketsAdController;
 use App\Http\Controllers\TicketsAuthController;
+use App\Http\Controllers\TicketsCheckoutController;
 use App\Http\Controllers\TicketsConfigController;
 use App\Http\Controllers\TicketsDashboardController;
 use App\Http\Controllers\TicketsEventController;
 use App\Http\Controllers\TicketsMercadoPagoController;
+use App\Http\Controllers\TicketsMultipagoController;
 use App\Http\Controllers\TicketsOrderController;
+use App\Http\Controllers\TicketsPaymentMethodController;
 use App\Http\Controllers\TicketsScanController;
 use App\Http\Controllers\TicketsStatisticsController;
 use App\Http\Controllers\TicketsTicketController;
@@ -45,6 +48,15 @@ Route::prefix('tickets/mp')->name('tickets.mp.')->group(function () {
     */
     Route::post('webhook/{event_id}', [TicketsMercadoPagoController::class, 'webhook'])->name('webhook');
     Route::get('callback', [TicketsMercadoPagoController::class, 'callback'])->name('callback');
+});
+
+// ---------------------------------------------------------------- Multipago
+// Notificaciones en tiempo real, GET o POST, sin sesion y sin CSRF (ver
+// bootstrap/app.php). La URL por evento lleva una key aleatoria: lo unico que
+// distingue un evento legitimo de un tercero que escribe a lo loco.
+Route::prefix('tickets/multipago')->name('tickets.multipago.')->group(function () {
+    Route::match(['get', 'post'], 'webhook/{event_id}/{key}', [TicketsMultipagoController::class, 'webhook'])
+        ->whereNumber('event_id')->name('webhook');
 });
 
 // ---------------------------------------------------------------- Panel
@@ -149,6 +161,14 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             | sin tener que cerrar un pago entero.
             */
             Route::post('config/mp-test', [TicketsConfigController::class, 'testMpToken'])->name('config.mp-test');
+
+            // Medios de pago
+            Route::get('payment-methods', [TicketsPaymentMethodController::class, 'index'])->name('payment-methods.index');
+            Route::put('payment-methods/{code}', [TicketsPaymentMethodController::class, 'update'])->name('payment-methods.update');
+            Route::put('payment-methods/{code}/events/{eventId}', [TicketsPaymentMethodController::class, 'updateEvent'])->whereNumber('eventId')->name('payment-methods.update-event');
+            Route::post('payment-methods/{code}/test', [TicketsPaymentMethodController::class, 'test'])->name('payment-methods.test');
+            Route::post('payment-methods/{code}/validate', [TicketsPaymentMethodController::class, 'validatePayments'])->name('payment-methods.validate');
+            Route::get('payment-methods/{code}/webhook-url/{eventId}', [TicketsPaymentMethodController::class, 'webhookUrl'])->whereNumber('eventId')->name('payment-methods.webhook-url');
         });
     });
 });
@@ -181,6 +201,11 @@ Route::prefix('tickets-portal/api')->name('tickets-portal.api.')->group(function
 
         Route::post('orders', [TicketPortalOrderController::class, 'create'])->name('orders.create');
         Route::post('orders/{orderId}/preference', [TicketsMercadoPagoController::class, 'createPreference'])->whereNumber('orderId')->name('orders.preference');
+
+        // Checkout con medio elegido
+        Route::get('orders/{orderId}/payment-methods', [TicketsCheckoutController::class, 'methods'])->whereNumber('orderId')->name('orders.payment-methods');
+        Route::get('orders/{orderId}/multipago-code', [TicketsCheckoutController::class, 'multipagoCode'])->whereNumber('orderId')->name('orders.multipago-code');
+        Route::get('orders/{orderId}/multipago-qr.svg', [TicketsCheckoutController::class, 'multipagoQrSvg'])->whereNumber('orderId')->name('orders.multipago-qr');
     });
 });
 

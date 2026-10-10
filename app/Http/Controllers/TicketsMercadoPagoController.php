@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\OrderPaymentService;
+use App\Services\Payments\MercadoPagoGateway;
 use App\Services\Realtime;
 use App\Support\MercadoPagoToken;
 use App\Support\QrPayload;
@@ -57,6 +58,14 @@ class TicketsMercadoPagoController extends Controller
 
         if (! $event) {
             return response()->json(['message' => 'Evento no disponible'], 404);
+        }
+
+        $mpMethod = DB::table('tickets_payment_methods')->where('code', 'mercadopago')->first();
+
+        if (! $mpMethod || (int) $mpMethod->enabled !== 1) {
+            return response()->json([
+                'message' => 'Este evento no acepta pagos con MercadoPago por el momento.',
+            ], 400);
         }
 
         $accessToken = MercadoPagoToken::forEvent($event);
@@ -207,7 +216,8 @@ try {
             $pref = $response->json();
 
             DB::table('tickets_orders')->where('id', $order->id)->update([
-                'mp_preference_id' => $pref['id'] ?? null,
+                'payment_reference' => $pref['id'] ?? null,
+                'payment_method' => 'mercadopago',
                 'updated_at' => now(),
             ]);
 
@@ -250,13 +260,13 @@ try {
         $token = null;
 
         if ($prefId = $request->query('preference_id')) {
-            $token = DB::table('tickets_orders')->where('mp_preference_id', $prefId)->value('public_token');
+            $token = DB::table('tickets_orders')->where('payment_reference', $prefId)->value('public_token');
         }
 
         if (! $token && ($mpOrderId = $request->query('order_id')) && is_numeric($mpOrderId)) {
             $token = DB::table('tickets_orders')
-                ->where('mp_preference_id', DB::table('tickets_orders')
-                    ->where('id', (int) $mpOrderId)->value('mp_preference_id'))
+                ->where('payment_reference', DB::table('tickets_orders')
+                    ->where('id', (int) $mpOrderId)->value('payment_reference'))
                 ->value('public_token');
         }
 
@@ -390,7 +400,7 @@ try {
                 return response()->json(['status' => 'ok']);
             }
 
-            app(OrderPaymentService::class)->markPaid($order, $paymentId, $payment);
+            app(OrderPaymentService::class)->markPaid($order, $paymentId, $payment, 'mercadopago');
 
             return response()->json(['status' => 'ok']);
         } catch (\Throwable $e) {
@@ -478,8 +488,9 @@ try {
             return response()->json(['message' => 'Falta event_id'], 400);
         }
 
-        $clientId = config('services.mercadopago.client_id') ?? env('MP_CLIENT_ID');
-        $clientSecret = config('services.mercadopago.client_secret') ?? env('MP_CLIENT_SECRET');
+        $gateway = new MercadoPagoGateway;
+        $clientId = $gateway->clientId();
+        $clientSecret = $gateway->clientSecret();
         $redirectUri = url('/tickets-admin/config/mp-callback');
 
         try {
@@ -501,13 +512,11 @@ try {
             $body = $resp->json();
 
             /*
-            | El token se guarda en el evento: cada operador conecta su MP al
-            | evento que organiza, y los pagos de ese evento caen ahi.
+            | El token se guarda en la config del evento (pivote de medios de
+            | pago): cada operador conecta su MP al evento que organiza, y los
+            | pagos de ese evento caen ahi.
             */
-            DB::table('tickets_events')->where('id', $eventId)->update([
-                'mp_access_token' => $body['access_token'] ?? null,
-                'updated_at' => now(),
-            ]);
+            MercadoPagoToken::storeForEvent($eventId, $body['access_token'] ?? null);
 
             // MP redirige al callback del navegador, no a un cliente API: si
             // devolvemos JSON el operador ve una pagina cruda fuera de la app.
@@ -533,7 +542,7 @@ try {
         $prefId = $payment['preference_id'] ?? null;
 
         if ($prefId) {
-            return DB::table('tickets_orders')->where('mp_preference_id', $prefId)->first();
+            return DB::table('tickets_orders')->where('payment_reference', $prefId)->first();
         }
 
         return null;

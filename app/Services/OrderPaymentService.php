@@ -26,11 +26,12 @@ class OrderPaymentService
      * reconciliacion (donde queremos saber si la accion tuvo efecto o no).
      *
      * @param  object  $order       Orden leida antes (puede tener status stale).
-     * @param  string  $paymentId   ID del pago en MP.
-     * @param  array   $payment     Payload completo del pago devuelto por MP.
+     * @param  string  $paymentId   ID del pago en el proveedor.
+     * @param  array   $payment     Payload completo del pago devuelto por el medio.
+     * @param  string  $paymentMethod  Code del medio que acredito el pago.
      * @return array{changed: bool, reason: ?string, was_cancelled: bool}
      */
-    public function markPaid(object $order, string $paymentId, array $payment): array
+    public function markPaid(object $order, string $paymentId, array $payment, string $paymentMethod = 'mercadopago'): array
     {
         $result = [
             'changed' => false,
@@ -39,7 +40,7 @@ class OrderPaymentService
         ];
 
         if ($order->status === 'paid') {
-            if ((string) $order->mp_payment_id === $paymentId) {
+            if ((string) $order->payment_external_id === $paymentId) {
                 $result['reason'] = 'already_paid_same_payment';
 
                 return $result;
@@ -47,7 +48,7 @@ class OrderPaymentService
 
             Log::error('[OrderPayment] orden ya pagada con otro pago', [
                 'order_id' => $order->id,
-                'stored_payment_id' => $order->mp_payment_id,
+                'stored_payment_id' => $order->payment_external_id,
                 'incoming_payment_id' => $paymentId,
             ]);
 
@@ -58,7 +59,7 @@ class OrderPaymentService
 
         $wasCancelled = false;
 
-        DB::transaction(function () use ($order, $paymentId, $payment, &$wasCancelled) {
+        DB::transaction(function () use ($order, $paymentId, $payment, $paymentMethod, &$wasCancelled) {
             /*
             | El lock sobre la orden y el re-chequeo del status van juntos. El
             | webhook de MercadoPago puede llegar dos veces (o dos pagos de la
@@ -108,8 +109,10 @@ class OrderPaymentService
 
             DB::table('tickets_orders')->where('id', $order->id)->update([
                 'status' => 'paid',
-                'mp_payment_id' => $paymentId,
-                'mp_transaction_amount' => $payment['transaction_details']['net_received_amount']
+                'payment_method' => $paymentMethod,
+                'payment_reference' => $payment['preference_id'] ?? $payment['reference'] ?? null,
+                'payment_external_id' => $paymentId,
+                'payment_amount' => $payment['transaction_details']['net_received_amount']
                     ?? $payment['transaction_amount'] ?? null,
                 'paid_at' => now(),
                 'updated_at' => now(),

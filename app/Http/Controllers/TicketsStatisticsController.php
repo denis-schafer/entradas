@@ -96,7 +96,7 @@ class TicketsStatisticsController extends Controller
                 'o.id', 'o.public_token', 'o.event_id', 'e.name as event_name',
                 'o.buyer_name', 'o.buyer_email', 'o.buyer_dni', 'o.buyer_phone',
                 'o.subtotal', 'o.total', 'o.payment_mode', 'o.installment_count',
-                'o.status', 'o.mp_payment_id', 'o.mp_transaction_amount',
+                'o.status', 'o.payment_external_id', 'o.payment_amount',
                 'o.created_at', 'o.paid_at',
             ])
             ->orderByDesc('o.id');
@@ -130,7 +130,7 @@ class TicketsStatisticsController extends Controller
                     $o->id, $o->public_token, $o->event_name, $o->buyer_name, $o->buyer_email,
                     $o->buyer_dni, $o->buyer_phone, $o->subtotal, $o->total,
                     $o->payment_mode, $o->installment_count, $o->status,
-                    $o->mp_payment_id, $o->mp_transaction_amount, $o->created_at, $o->paid_at,
+                    $o->payment_external_id, $o->payment_amount, $o->created_at, $o->paid_at,
                 ]);
             }
 

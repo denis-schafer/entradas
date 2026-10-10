@@ -23,6 +23,7 @@ import ScansView from '../admin/ScansView.vue';
 import UsersView from '../admin/UsersView.vue';
 import AdsView from '../admin/AdsView.vue';
 import SettingsView from '../admin/SettingsView.vue';
+import PaymentMethodsView from '../admin/PaymentMethodsView.vue';
 import PasswordView from '../admin/PasswordView.vue';
 
 /*
@@ -58,6 +59,7 @@ const VIEWS = {
     users: UsersView,
     ads: AdsView,
     settings: SettingsView,
+    'payment-methods': PaymentMethodsView,
     password: PasswordView,
     statistics: StatisticsView,
 };
@@ -80,6 +82,7 @@ const ALL_NAV = [
     { name: 'statistics', label: 'Estadisticas', icon: 'bi-graph-up' },
     { name: 'users', label: 'Usuarios', icon: 'bi-people' },
     { name: 'ads', label: 'Publicidad', icon: 'bi-megaphone' },
+    { name: 'payment-methods', label: 'Medios de pago', icon: 'bi-credit-card' },
     { name: 'settings', label: 'Configuracion', icon: 'bi-gear' },
     { name: 'password', label: 'Mi contrasena', icon: 'bi-key' },
 ];
