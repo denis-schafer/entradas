@@ -276,7 +276,7 @@ $id = DB::table('tickets_orders')->insertGetId([
             ->select([
                 'o.id', 'o.public_token', 'o.event_id', 'o.total', 'o.status',
                 'o.payment_mode', 'o.installment_count',
-                'o.mp_payment_id', 'o.created_at', 'o.paid_at',
+                'o.payment_external_id', 'o.created_at', 'o.paid_at',
                 'e.name as event_name', 'e.starts_at', 'e.cover_image as event_cover',
             ])
             ->orderByDesc('o.id')
@@ -319,7 +319,7 @@ $id = DB::table('tickets_orders')->insertGetId([
             'id' => $order->id,
             'public_token' => $order->public_token,
             'status' => $order->status,
-            'mp_payment_id' => $order->mp_payment_id,
+            'payment_external_id' => $order->payment_external_id,
             'paid_at' => $order->paid_at,
         ]);
     }
@@ -442,7 +442,7 @@ public function myTicketQr(Request $request, int $ticketId)
                 ->where('status', 'pending')
                 ->update([
                     'status' => 'cancelled',
-                    'mp_preference_id' => null,
+                    'payment_reference' => null,
                     'updated_at' => now(),
                 ]);
         });
