@@ -411,7 +411,7 @@ onBeforeUnmount(() => {
 
             <button class="btn btn-et-primary" :disabled="!canCheckout || buying" @click="goToCheckout">
                 <span v-if="buying" class="spinner-border spinner-border-sm me-2"></span>
-                {{ buying ? 'Abriendo MercadoPago…' : 'Comprar' }}
+                {{ buying ? 'Preparando el pago…' : 'Comprar' }}
                 <i v-if="!buying" class="bi bi-arrow-right ms-1"></i>
             </button>
         </div>

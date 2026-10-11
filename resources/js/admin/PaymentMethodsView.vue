@@ -43,11 +43,9 @@ const FIELDS = {
             { key: 'bersacode', label: 'Bersa code (comercio)', secret: false },
             { key: 'username', label: 'Usuario API', secret: false },
             { key: 'password', label: 'Contraseña API', secret: true },
-            { key: 'qr_enabled', label: 'Ofrecer QR', type: 'bool' },
-            { key: 'button_enabled', label: 'Ofrecer botón de pago', type: 'bool' },
         ],
         eventTitle: 'Habilitación por evento',
-        eventHint: 'Multipago usa una única cuenta y un único webhook. Acá solo decidís en qué eventos se ofrece.',
+        eventHint: 'Multipago usa una única cuenta y un único webhook. Por evento elegís qué modalidades ofrecer (QR y/o botón de pago).',
     },
 };
 
@@ -57,6 +55,8 @@ const globalDrafts = ref({});      // code -> { key: value }
 const clearedGlobal = ref({});     // code -> [key]
 const eventDrafts = ref({});       // code -> { eventId: token }
 const eventEnabled = ref({});      // code -> { eventId: bool }
+const eventQr = ref({});           // code -> { eventId: bool }  (multipago)
+const eventButton = ref({});       // code -> { eventId: bool }  (multipago)
 const eventClearToken = ref({});   // code -> { eventId: bool }
 const saving = ref({});
 const savingEvent = ref({});
@@ -106,11 +106,19 @@ async function load() {
 
             eventDrafts.value[m.code] = {};
             eventEnabled.value[m.code] = {};
+            eventQr.value[m.code] = {};
+            eventButton.value[m.code] = {};
             eventClearToken.value[m.code] = {};
 
             (m.events || []).forEach((ev) => {
                 eventDrafts.value[m.code][ev.event_id] = ev.config?.access_token || '';
                 eventEnabled.value[m.code][ev.event_id] = !!ev.enabled;
+                eventQr.value[m.code][ev.event_id] = ev.config?.qr_enabled === undefined
+                    ? true
+                    : !!ev.config.qr_enabled;
+                eventButton.value[m.code][ev.event_id] = ev.config?.button_enabled === undefined
+                    ? true
+                    : !!ev.config.button_enabled;
             });
 
             selectedEvent.value[m.code] = selectedEvent.value[m.code] ?? null;
@@ -190,12 +198,21 @@ async function saveEvent(code) {
     const key = `${code}:${eventId}`;
     const clearToken = eventClearToken.value[code]?.[eventId];
 
+    // MercadoPago guarda el token OAuth del evento; Multipago, en cambio, elige
+    // por evento que modalidades se ofrecen.
+    const config = code === 'multipago'
+        ? {
+            qr_enabled: !!eventQr.value[code]?.[eventId],
+            button_enabled: !!eventButton.value[code]?.[eventId],
+        }
+        : { access_token: eventDrafts.value[code][eventId] || '' };
+
     savingEvent.value[key] = true;
 
     try {
         await api.put(`tickets-admin/payment-methods/${code}/events/${eventId}`, {
             enabled: eventEnabled.value[code][eventId],
-            config: { access_token: eventDrafts.value[code][eventId] || '' },
+            config,
             cleared_keys: clearToken ? ['access_token'] : [],
         });
 
@@ -580,9 +597,25 @@ onMounted(load);
                             </template>
 
                             <template v-else>
-                                <p class="small text-muted-2 mb-0">
-                                    Multipago no usa credenciales por evento: solo se habilita o deshabilita acá.
+                                <p class="small text-muted-2 mb-2">
+                                    Multipago no usa credenciales por evento: elegí qué modalidades ofrecer en este evento.
                                 </p>
+                                <label class="form-check form-switch mb-2">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="eventQr[method.code][selectedEvent[method.code]]"
+                                    >
+                                    <span class="ms-1 small">Ofrecer QR</span>
+                                </label>
+                                <label class="form-check form-switch mb-0">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="eventButton[method.code][selectedEvent[method.code]]"
+                                    >
+                                    <span class="ms-1 small">Ofrecer botón de pago (código de barras)</span>
+                                </label>
                             </template>
 
                             <div class="d-flex gap-2 mt-3">

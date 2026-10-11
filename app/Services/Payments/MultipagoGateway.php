@@ -58,31 +58,27 @@ class MultipagoGateway extends PaymentGateway
     }
 
     /**
-     * Modulo QR habilitado (QR que identifica al cliente; cobra la deuda
-     * presentada). Default: habilitado si nunca se configuro.
+     * Modulo QR habilitado PARA ESE EVENTO (se configura por evento; default:
+     * habilitado si nunca se configuro).
      */
-    public function qrEnabled(): bool
+    public function qrEnabled(int $eventId): bool
     {
-        return $this->boolConfig('qr_enabled', true);
+        return $this->toBool($this->resolveConfig($eventId, 'qr_enabled', true), true);
     }
 
     /**
-     * Modulo Boton de pago (codigo de barras PUM con importe y vencimiento).
+     * Modulo Boton de pago (codigo de barras PUM) habilitado para ese evento.
      */
-    public function buttonEnabled(): bool
+    public function buttonEnabled(int $eventId): bool
     {
-        return $this->boolConfig('button_enabled', true);
+        return $this->toBool($this->resolveConfig($eventId, 'button_enabled', true), true);
     }
 
-    private function boolConfig(string $key, bool $default): bool
+    private function toBool(mixed $value, bool $default): bool
     {
-        $config = $this->methodConfig();
-
-        if (! array_key_exists($key, $config)) {
+        if ($value === null || $value === '') {
             return $default;
         }
-
-        $value = $config[$key];
 
         return $value === true || $value === 1 || $value === '1' || $value === 'true';
     }

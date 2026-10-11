@@ -8,7 +8,7 @@
  */
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
-import { startPolling, stopPolling } from '../realtime.js';
+import { listen, startPolling, stopPolling } from '../realtime.js';
 import StatusBadge from '../ui/StatusBadge.vue';
 import EmptyState from '../ui/EmptyState.vue';
 import { toast } from '../ui/toast.js';
@@ -25,10 +25,19 @@ const loading = ref(true);
 const error = ref('');
 const cancelling = ref(null);
 const confirming = ref(null);
+const paidModal = ref(null);
+
+// Estado anterior por orden: cuando una pasa de 'pending' a 'paid' avisamos con
+// un modal. Las suscripciones a los canales privados de cada orden pendiente
+// hacen que ese cambio llegue apenas el webhook confirma el pago.
+const statusById = new Map();
+const subs = new Map();
 
 async function load() {
     try {
         const { data } = await api.get('tickets-portal/api/my-orders');
+
+        syncRealtime(data || []);
 
         orders.value = data;
         error.value = '';
@@ -37,6 +46,43 @@ async function load() {
     } finally {
         loading.value = false;
     }
+}
+
+function syncRealtime(list) {
+    list.forEach((order) => {
+        const prev = statusById.get(order.id);
+
+        if (prev === 'pending' && order.status === 'paid') {
+            paidModal.value = order;
+        }
+
+        statusById.set(order.id, order.status);
+
+        if (order.status === 'pending' && order.public_token && !subs.has(order.public_token)) {
+            subs.set(
+                order.public_token,
+                listen(`tickets.order.${order.public_token}`, 'order.status', load)
+            );
+        }
+    });
+
+    const stillPending = new Set(
+        list
+            .filter((order) => order.status === 'pending' && order.public_token)
+            .map((order) => order.public_token)
+    );
+
+    [...subs.keys()].forEach((token) => {
+        if (!stillPending.has(token)) {
+            subs.get(token)?.();
+            subs.delete(token);
+        }
+    });
+}
+
+function goToTickets() {
+    paidModal.value = null;
+    emit('navigate', 'my-tickets');
 }
 
 function money(value) {
@@ -111,6 +157,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     stopPolling();
+    subs.forEach((off) => off?.());
+    subs.clear();
 });
 </script>
 
@@ -167,6 +215,14 @@ onBeforeUnmount(() => {
                     <button
                         v-else-if="order.status === 'pending'"
                         class="btn btn-et-primary btn-sm"
+                        @click="emit('navigate', 'payment', { id: order.id })"
+                    >
+                        Pagar
+                    </button>
+
+                    <button
+                        v-if="order.status === 'pending'"
+                        class="btn btn-et-ghost btn-sm"
                         @click="emit('navigate', 'order-result', { order_id: order.id })"
                     >
                         Ver estado
@@ -199,6 +255,29 @@ onBeforeUnmount(() => {
                 </div>
             </article>
         </div>
+
+        <div v-if="paidModal" class="paid-modal no-print" @click.self="paidModal = null">
+            <div class="paid-modal__card et-surface-raised">
+                <div class="paid-modal__icon">
+                    <i class="bi bi-check-circle-fill"></i>
+                </div>
+
+                <h2 class="h5 fw-bold mb-2">¡Pago confirmado!</h2>
+                <p class="text-muted-2 mb-4">
+                    Tu compra de {{ paidModal.event_name || 'el evento' }} se acreditó.
+                    Ya podés ver y descargar tus entradas.
+                </p>
+
+                <div class="d-flex gap-2 justify-content-center">
+                    <button class="btn btn-et-primary btn-sm" @click="goToTickets">
+                        Ver mis entradas
+                    </button>
+                    <button class="btn btn-et-ghost btn-sm" @click="paidModal = null">
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
 
@@ -225,5 +304,48 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 0.5rem;
     flex-shrink: 0;
+}
+
+.paid-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    display: grid;
+    place-items: center;
+    padding: 1rem;
+    background: rgb(0 0 0 / 55%);
+    backdrop-filter: blur(2px);
+}
+
+.paid-modal__card {
+    width: min(420px, 100%);
+    padding: 2rem 1.75rem;
+    border-radius: var(--et-radius-lg);
+    text-align: center;
+    animation: paid-pop 180ms ease-out;
+}
+
+.paid-modal__icon {
+    width: 68px;
+    height: 68px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 2rem;
+    background: rgb(46 213 115 / 14%);
+    color: var(--et-success);
+}
+
+@keyframes paid-pop {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.97);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
 }
 </style>

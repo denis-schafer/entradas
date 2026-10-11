@@ -67,13 +67,15 @@ class TicketsCheckoutController extends Controller
 
             if ($gateway->code() === 'multipago') {
                 // Multipago expone dos modalidades independientes: QR y boton
-                // de pago. Cada una se habilita o deshabilita por separado.
+                // de pago. Cada evento habilita o deshabilita cada una.
                 if (trim((string) $gateway->methodConfig()['bersacode'] ?? '') === ''
                     || trim((string) $gateway->methodConfig()['username'] ?? '') === '') {
                     continue;
                 }
 
-                if ($gateway->qrEnabled()) {
+                $eventId = (int) $order->event_id;
+
+                if ($gateway->qrEnabled($eventId)) {
                     $methods[] = [
                         'code' => 'multipago',
                         'variant' => 'qr',
@@ -83,7 +85,7 @@ class TicketsCheckoutController extends Controller
                     ];
                 }
 
-                if ($gateway->buttonEnabled()) {
+                if ($gateway->buttonEnabled($eventId)) {
                     $methods[] = [
                         'code' => 'multipago',
                         'variant' => 'button',

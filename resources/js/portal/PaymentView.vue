@@ -60,6 +60,8 @@ async function choose(method) {
 
     if (method.type === 'redirect') {
         await startMercadoPago();
+    } else if (method.variant === 'button') {
+        await startMultipagoButton();
     } else {
         await startMultipago();
     }
@@ -100,6 +102,34 @@ async function startMultipago() {
         qr.value = data;
         startPolling();
     } catch (err) {
+        error.value = toError(err).message;
+        toast(error.value, 'danger');
+    }
+}
+
+/**
+ * Boton de pago: en vez de mostrar el codigo intermedio, abre directamente el
+ * link de Multipago. La pestana se abre en blanco dentro del mismo click
+ * (gesto del usuario) porque el navegador bloquea window.open despues de un
+ * await. Si igual queda bloqueada, la pantalla muestra el codigo con el boton
+ * "Abrir Multipago" como respaldo.
+ */
+async function startMultipagoButton() {
+    const tab = window.open('', '_blank');
+
+    try {
+        const { data } = await api.get(
+            `tickets-portal/api/orders/${orderId}/multipago-code`
+        );
+
+        qr.value = data;
+        startPolling();
+
+        if (tab) {
+            tab.location.href = data.url;
+        }
+    } catch (err) {
+        tab?.close();
         error.value = toError(err).message;
         toast(error.value, 'danger');
     }
