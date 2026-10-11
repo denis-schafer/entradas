@@ -57,6 +57,29 @@ function qrUrl(ticket) {
     return `/tickets-portal/api/my-tickets/${ticket.id}/qr.svg?size=520`;
 }
 
+/**
+ * El link de la venta: el public_token de la orden es la credencial de la
+ * vista publica /e/{token}. Todas las entradas de una misma compra comparten
+ * el token.
+ */
+function entryLink(ticket) {
+    return ticket.public_token ? `${window.location.origin}/e/${ticket.public_token}` : '';
+}
+
+function shareByWhatsApp(ticket) {
+    const link = entryLink(ticket);
+
+    if (!link) {
+        toast('Esta entrada no tiene link para compartir.', 'warning');
+
+        return;
+    }
+
+    const text = `Tus entradas para ${ticket.event_name || 'el evento'} estan aca: ${link}`;
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
 function qrHint(ticket) {
     if (ticket.order_status !== 'paid') {
         return 'El QR aparece cuando el pago este confirmado.';
@@ -272,6 +295,9 @@ onBeforeUnmount(() => {
                                 </button>
                                 <button class="btn btn-et-ghost btn-sm" @click="printQr(ticket)">
                                     <i class="bi bi-printer me-1"></i>Imprimir
+                                </button>
+                                <button class="btn btn-et-ghost btn-sm" title="Enviar las entradas por WhatsApp" @click="shareByWhatsApp(ticket)">
+                                    <i class="bi bi-whatsapp me-1"></i>WhatsApp
                                 </button>
                             </div>
                         </template>

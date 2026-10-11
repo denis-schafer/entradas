@@ -37,13 +37,32 @@ const selling = ref(false);
 const saleError = ref('');
 const receipt = ref(null);
 
-const entryLink = computed(() => {
-    if (!receipt.value?.order?.public_token) {
+/*
+| Pestaña activa: "sell" arma la venta; "sales" es el historial de lo vendido
+| (el vendedor ve sus ventas y puede volver a mandar el link o el comprobante).
+| Se carga la primera vez que se entra, no al montar.
+*/
+const tab = ref('sell');
+const sales = ref([]);
+const loadingSales = ref(false);
+const salesLoaded = ref(false);
+const salesError = ref('');
+
+function entryLinkFor(token) {
+    return token ? `${window.location.origin}/e/${token}` : '';
+}
+
+function shareMessageFor(eventName) {
+    const link = entryLinkFor(receipt.value?.order?.public_token);
+
+    if (!link) {
         return '';
     }
 
-    return `${window.location.origin}/e/${receipt.value.order.public_token}`;
-});
+    return `Tus entradas para ${eventName || 'el evento'} estan aca: ${link}`;
+}
+
+const entryLink = computed(() => entryLinkFor(receipt.value?.order?.public_token));
 
 function copyEntryLink() {
     const link = entryLink.value;
@@ -59,15 +78,62 @@ function copyEntryLink() {
 }
 
 function sendByWhatsApp() {
-    const link = entryLink.value;
+    const text = shareMessageFor(receipt.value?.order?.event_name);
 
-    if (!link) {
+    if (!text) {
         return;
     }
 
-    const text = `Tus entradas para ${receipt.value.order.event_name || 'el evento'} estan aca: ${link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
+async function loadSales() {
+    loadingSales.value = true;
+    salesError.value = '';
+
+    try {
+        const { data } = await api.get('tickets-admin/pos/sales');
+        sales.value = data || [];
+        salesLoaded.value = true;
+    } catch (err) {
+        salesError.value = toError(err).message;
+    } finally {
+        loadingSales.value = false;
+    }
+}
+
+function showTab(next) {
+    tab.value = next;
+
+    if (next === 'sales' && !salesLoaded.value) {
+        loadSales();
+    }
+}
+
+async function openReceipt(id) {
+    try {
+        const { data } = await api.get(`tickets-admin/pos/orders/${id}/receipt`);
+        receipt.value = data;
+    } catch (err) {
+        toast(toError(err).message, 'danger');
+    }
+}
+
+function resendWhatsApp(sale) {
+    const link = entryLinkFor(sale.public_token);
+
+    if (!link) {
+        toast('Esta venta no tiene link para compartir.', 'warning');
+        return;
+    }
+
+    const text = `Tus entradas para ${sale.event_name || 'el evento'} estan aca: ${link}`;
 
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
+function saleDate(value) {
+    return new Date(value || null).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
 function money(value) {
@@ -367,6 +433,16 @@ onMounted(loadEvents);
             </div>
         </header>
 
+        <div class="pos__tabs mb-3">
+            <button class="pos__tab" :class="{ 'is-on': tab === 'sell' }" @click="showTab('sell')">
+                <i class="bi bi-cash-coin me-1"></i>Nueva venta
+            </button>
+            <button class="pos__tab" :class="{ 'is-on': tab === 'sales' }" @click="showTab('sales')">
+                <i class="bi bi-receipt me-1"></i>Mis ventas
+            </button>
+        </div>
+
+        <section v-if="tab === 'sell'">
         <p v-if="error" class="small" style="color: var(--et-danger)">
             <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
         </p>
@@ -512,6 +588,64 @@ onMounted(loadEvents);
                 </button>
             </aside>
         </div>
+        </section>
+
+        <!-- Historial de ventas del vendedor -->
+        <section v-if="tab === 'sales'">
+            <p v-if="salesError" class="small" style="color: var(--et-danger)">
+                <i class="bi bi-exclamation-circle me-1"></i>{{ salesError }}
+            </p>
+
+            <div v-if="loadingSales" class="text-center py-5">
+                <div class="spinner-border" role="status"></div>
+            </div>
+
+            <EmptyState
+                v-else-if="!sales.length"
+                icon="bi-receipt"
+                title="Todavia no vendiste nada"
+                hint="Las ventas en efectivo que hagas van a aparecer aca, con su link para reenviar."
+            />
+
+            <div v-else class="et-surface pos__sales-table">
+                <div class="pos__sales-row pos__sales-head">
+                    <span>Venta</span>
+                    <span>Fecha</span>
+                    <span>Evento</span>
+                    <span>Comprador</span>
+                    <span class="text-end">Entradas</span>
+                    <span class="text-end">Total</span>
+                    <span class="text-end">Link</span>
+                </div>
+                <div v-for="sale in sales" :key="sale.id" class="pos__sales-row">
+                    <span class="fw-semibold">#{{ sale.id }}</span>
+                    <span class="small text-faint numeric">{{ saleDate(sale.created_at) }}</span>
+                    <span class="text-truncate">{{ sale.event_name }}</span>
+                    <span class="text-truncate">
+                        {{ sale.buyer_name }}
+                        <span class="small text-faint numeric">({{ sale.buyer_dni }})</span>
+                    </span>
+                    <span class="text-end numeric">{{ sale.ticket_count }}</span>
+                    <span class="text-end numeric">{{ money(sale.total) }}</span>
+                    <span class="d-flex gap-1 justify-content-end">
+                        <button
+                            class="btn btn-et-ghost btn-sm"
+                            title="Reenviar el link por WhatsApp"
+                            @click="resendWhatsApp(sale)"
+                        >
+                            <i class="bi bi-whatsapp"></i>
+                        </button>
+                        <button
+                            class="btn btn-et-ghost btn-sm"
+                            title="Ver comprobante"
+                            @click="openReceipt(sale.id)"
+                        >
+                            <i class="bi bi-printer"></i>
+                        </button>
+                    </span>
+                </div>
+            </div>
+        </section>
 
         <!-- Comprobante -->
         <div v-if="receipt" class="modal-backdrop" @click.self="newSale">
@@ -732,5 +866,60 @@ onMounted(loadEvents);
 .pos__share input {
     min-width: 0;
     flex: 1;
+}
+
+.pos__tabs {
+    display: flex;
+    gap: 0.35rem;
+    border-bottom: 1px solid var(--et-border);
+    margin-bottom: 1rem;
+}
+
+.pos__tab {
+    border: 0;
+    background: none;
+    padding: 0.55rem 0.85rem;
+    border-bottom: 2px solid transparent;
+    color: var(--et-text-muted);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.pos__tab:hover {
+    color: var(--et-text);
+}
+
+.pos__tab.is-on {
+    color: var(--et-primary);
+    border-bottom-color: var(--et-primary);
+}
+
+.pos__sales-table {
+    padding: 0.5rem;
+    overflow-x: auto;
+}
+
+.pos__sales-row {
+    display: grid;
+    grid-template-columns: minmax(60px, 74px) 72px minmax(140px, 1fr) minmax(140px, 1.2fr) 64px 84px auto;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.5rem 0.65rem;
+    border-bottom: 1px solid var(--et-border);
+    font-size: 0.85rem;
+    min-width: 720px;
+}
+
+.pos__sales-row:last-child {
+    border-bottom: 0;
+}
+
+.pos__sales-head {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--et-text-faint);
+    border-bottom-color: var(--et-border-strong);
 }
 </style>

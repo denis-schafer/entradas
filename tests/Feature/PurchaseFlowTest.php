@@ -1212,6 +1212,14 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $this->assertSame($seller->id, (int) $order->seller_user_id);
         $this->assertSame(10000, (int) $order->total);
 
+        // El vendedor ve la venta en su historial, con el public_token para
+        // reconstruir el link de reenvio por WhatsApp.
+        $sales = $this->getJson('/tickets-admin/pos/sales');
+        $sales->assertOk();
+        $this->assertCount(1, $sales->json());
+        $this->assertSame($order->public_token, $sales->json('0.public_token'));
+        $this->assertSame(2, $sales->json('0.ticket_count'));
+
         // Dos entradas emitidas con su QR firmado y el stock corrido.
         $tickets = DB::table('tickets_tickets')
             ->where('order_id', $orderId)
@@ -1238,6 +1246,9 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
             'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
         ])->assertStatus(422);
         $this->getJson("/tickets-admin/pos/orders/{$orderId}/receipt")->assertStatus(404);
+
+        // Y su historial esta vacio: cada vendedor ve solo lo que vendio.
+        $this->getJson('/tickets-admin/pos/sales')->assertOk()->assertJsonCount(0);
     }
 
     /**
@@ -1365,6 +1376,19 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $token = $sale->json('order.public_token');
         $ticketId = $sale->json('tickets.0.id');
         $this->assertNotEmpty($token);
+
+        // El comprador tambien tiene el token en su panel: es lo que usa el
+        // boton de WhatsApp de "Mis entradas" para armar el mismo link.
+        $buyerLogin = $this->postJson('/tickets-auth/login', [
+            'identifier' => $buyer->dni,
+            'password' => 'secreto123',
+        ]);
+        $buyerLogin->assertOk();
+        $this->assertFalse($buyerLogin->json('is_admin'));
+
+        $mine = $this->getJson('/tickets-portal/api/my-tickets');
+        $mine->assertOk();
+        $this->assertSame($token, $mine->json('0.public_token'));
 
         // Sin ninguna sesion: ni vendedor, ni comprador, ni admin.
         auth()->logout();

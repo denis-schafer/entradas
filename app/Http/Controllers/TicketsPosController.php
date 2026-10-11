@@ -251,7 +251,7 @@ class TicketsPosController extends Controller
             ->orderByDesc('o.id')
             ->select([
                 'o.id', 'o.total', 'o.status', 'o.created_at', 'o.paid_at',
-                'o.buyer_name', 'o.buyer_dni',
+                'o.buyer_name', 'o.buyer_dni', 'o.public_token',
                 'e.name as event_name',
                 DB::raw('(SELECT COUNT(*) FROM tickets_tickets t WHERE t.order_id = o.id) as ticket_count'),
             ]);
