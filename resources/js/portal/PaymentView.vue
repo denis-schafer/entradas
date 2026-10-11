@@ -4,10 +4,10 @@
  *
  * Llega desde EventDetailView con el order_id recien creado. Pide la lista de
  * medios habilitados para el evento y deja elegir:
- *   - MercadoPago: crea la preference y salta al checkout de MP (flujo de
- *     siempre).
- *   - Multipago: muestra el QR del codigo PUM y espera el pago (webhook o
- *     validacion). Al confirmarse, va a OrderResult.
+ *   - MercadoPago: crea la preference y salta al checkout de MP.
+ *   - Multipago: expone dos modalidades independientes (QR y boton de pago);
+ *     ambas usan el mismo codigo PUM. La orden se confirma por webhook o por
+ *     validacion.
  */
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
@@ -32,6 +32,7 @@ const paying = ref(false);
 const qr = ref(null);
 const paid = ref(false);
 const cancelled = ref(false);
+const copied = ref(false);
 
 let pollTimer = null;
 
@@ -104,6 +105,16 @@ async function startMultipago() {
     }
 }
 
+async function copyCode() {
+    try {
+        await navigator.clipboard.writeText(qr.value.code);
+        copied.value = true;
+        setTimeout(() => { copied.value = false; }, 1500);
+    } catch {
+        toast('No se pudo copiar', 'warning');
+    }
+}
+
 function startPolling() {
     stopPolling();
 
@@ -136,6 +147,19 @@ function goBackToList() {
     chosen.value = null;
     qr.value = null;
     cancelled.value = false;
+    copied.value = false;
+}
+
+function methodIcon(method) {
+    if (method.type === 'redirect') {
+        return 'bi-bank';
+    }
+
+    return method.variant === 'button' ? 'bi-upc-scan' : 'bi-qr-code-scan';
+}
+
+function isMultipago(method) {
+    return method && String(method.type).startsWith('multipago');
 }
 
 function onNavigate(name, params) {
@@ -166,19 +190,14 @@ onBeforeUnmount(stopPolling);
             <div class="payment__methods">
                 <button
                     v-for="method in methods"
-                    :key="method.code"
+                    :key="`${method.code}-${method.variant || ''}`"
                     type="button"
                     class="payment__method-card"
                     @click="choose(method)"
                 >
-                    <i
-                        class="bi fs-3"
-                        :class="method.code === 'mercadopago' ? 'bi-bank' : 'bi-qr-code-scan'"
-                    ></i>
+                    <i class="bi fs-3" :class="methodIcon(method)"></i>
                     <span class="fw-semibold">{{ method.name }}</span>
-                    <span class="small text-muted-2">
-                        {{ method.code === 'mercadopago' ? 'Tarjeta, Rapipago, Pago Facil' : 'QR de Multipago' }}
-                    </span>
+                    <span class="small text-muted-2">{{ method.subtitle }}</span>
                 </button>
             </div>
 
@@ -187,7 +206,7 @@ onBeforeUnmount(stopPolling);
             </p>
         </template>
 
-        <div v-else-if="chosen.type === 'qr' && qr" class="payment__qr-wrap">
+        <div v-else-if="isMultipago(chosen) && qr" class="payment__qr-wrap">
             <div v-if="paid" class="alert alert-success small">
                 <i class="bi bi-check-circle-fill me-1"></i>
                 Pago confirmado. Preparando tus entradas...
@@ -201,16 +220,36 @@ onBeforeUnmount(stopPolling);
             </div>
 
             <div v-else class="payment__qr-card et-surface-raised p-4 text-center">
-                <p class="small text-muted-2 mb-3">
-                    Escaneá el QR con la app de Multipago o abri el enlace. La
-                    orden se confirma sola cuando Multipago notifique el pago.
-                </p>
+                <template v-if="chosen.variant === 'qr'">
+                    <p class="small text-muted-2 mb-3">
+                        Escaneá el QR con la app de Multipago o abrí el enlace. La
+                        orden se confirma sola cuando Multipago notifique el pago.
+                    </p>
 
-                <img
-                    :src="`tickets-portal/api/orders/${orderId}/multipago-qr.svg?size=380`"
-                    alt="QR Multipago"
-                    class="payment__qr-img"
-                >
+                    <img
+                        :src="`tickets-portal/api/orders/${orderId}/multipago-qr.svg?size=380`"
+                        alt="QR Multipago"
+                        class="payment__qr-img"
+                    >
+                </template>
+
+                <template v-else>
+                    <p class="small text-muted-2 mb-3">
+                        Presentá este código de barras para pagar. La orden se
+                        confirma sola cuando Multipago notifique el pago.
+                    </p>
+
+                    <code class="payment__barcode">{{ qr.code }}</code>
+
+                    <button
+                        type="button"
+                        class="btn btn-et-ghost btn-sm mt-2"
+                        @click="copyCode"
+                    >
+                        <i class="bi" :class="copied ? 'bi-check' : 'bi-clipboard'"></i>
+                        {{ copied ? 'Copiado' : 'Copiar código' }}
+                    </button>
+                </template>
 
                 <div class="payment__qr-info">
                     <div>
@@ -218,8 +257,8 @@ onBeforeUnmount(stopPolling);
                         <strong>{{ formatAmount(qr.amount) }}</strong>
                     </div>
                     <div>
-                        <span class="small text-muted-2">Codigo</span>
-                        <code class="font-monospace">{{ qr.code }}</code>
+                        <span class="small text-muted-2">Vencimiento</span>
+                        <strong>{{ qr.due }}</strong>
                     </div>
                 </div>
 
@@ -289,6 +328,17 @@ onBeforeUnmount(stopPolling);
     border: 1px solid var(--et-border);
     border-radius: var(--et-radius);
     background: #fff;
+}
+
+.payment__barcode {
+    display: block;
+    padding: 1rem;
+    border: 1px dashed var(--et-border);
+    border-radius: var(--et-radius);
+    background: #fff;
+    font-size: 1.05rem;
+    letter-spacing: 0.08em;
+    word-break: break-all;
 }
 
 .payment__qr-info {

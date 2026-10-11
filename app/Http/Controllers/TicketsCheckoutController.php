@@ -49,25 +49,50 @@ class TicketsCheckoutController extends Controller
                 continue;
             }
 
-            $type = $gateway->code() === 'mercadopago' ? 'redirect' : 'qr';
-
-            // Solo se ofrece el medio si ademas hay con que cobrar.
             if ($gateway->code() === 'mercadopago') {
+                // Solo se ofrece si ademas hay con que cobrar.
                 if (empty($gateway->eventToken((int) $order->event_id))) {
                     continue;
                 }
-            } elseif ($gateway->code() === 'multipago') {
+
+                $methods[] = [
+                    'code' => 'mercadopago',
+                    'name' => $gateway->name(),
+                    'type' => 'redirect',
+                    'subtitle' => 'Tarjeta, Rapipago, Pago Facil',
+                ];
+
+                continue;
+            }
+
+            if ($gateway->code() === 'multipago') {
+                // Multipago expone dos modalidades independientes: QR y boton
+                // de pago. Cada una se habilita o deshabilita por separado.
                 if (trim((string) $gateway->methodConfig()['bersacode'] ?? '') === ''
                     || trim((string) $gateway->methodConfig()['username'] ?? '') === '') {
                     continue;
                 }
-            }
 
-            $methods[] = [
-                'code' => $gateway->code(),
-                'name' => $gateway->name(),
-                'type' => $type,
-            ];
+                if ($gateway->qrEnabled()) {
+                    $methods[] = [
+                        'code' => 'multipago',
+                        'variant' => 'qr',
+                        'name' => 'Multipago (QR)',
+                        'type' => 'multipago-qr',
+                        'subtitle' => 'Escaneá el QR con la app de Multipago',
+                    ];
+                }
+
+                if ($gateway->buttonEnabled()) {
+                    $methods[] = [
+                        'code' => 'multipago',
+                        'variant' => 'button',
+                        'name' => 'Multipago (Botón de pago)',
+                        'type' => 'multipago-button',
+                        'subtitle' => 'Código de barras para pagar en Multipago',
+                    ];
+                }
+            }
         }
 
         return response()->json(['methods' => $methods, 'order_id' => (int) $order->id]);

@@ -43,6 +43,8 @@ const FIELDS = {
             { key: 'bersacode', label: 'Bersa code (comercio)', secret: false },
             { key: 'username', label: 'Usuario API', secret: false },
             { key: 'password', label: 'Contraseña API', secret: true },
+            { key: 'qr_enabled', label: 'Ofrecer QR', type: 'bool' },
+            { key: 'button_enabled', label: 'Ofrecer botón de pago', type: 'bool' },
         ],
         eventTitle: 'Habilitación por evento',
         eventHint: 'Multipago usa una única cuenta y un único webhook. Acá solo decidís en qué eventos se ofrece.',
@@ -87,8 +89,17 @@ async function load() {
             const drafts = {};
 
             (FIELDS[m.code]?.global || []).forEach((f) => {
-                const value = m.config?.[f.key] ?? '';
-                drafts[f.key] = f.secret && isMask(value) ? '' : value;
+                const value = m.config?.[f.key];
+
+                if (f.type === 'bool') {
+                    drafts[f.key] = value === undefined || value === null
+                        ? true
+                        : !(value === false || value === 0 || value === '0' || value === 'false');
+
+                    return;
+                }
+
+                drafts[f.key] = f.secret && isMask(value) ? '' : (value ?? '');
             });
 
             globalDrafts.value[m.code] = drafts;
@@ -347,37 +358,53 @@ onMounted(load);
                         <div
                             v-for="field in FIELDS[method.code]?.global || []"
                             :key="field.key"
-                            class="col-md-4"
+                            :class="field.type === 'bool' ? 'col-md-3' : 'col-md-4'"
                         >
-                            <label class="form-label small mb-1" :for="`${method.code}-${field.key}`">
-                                {{ field.label }}
-                                <button
-                                    v-if="hasGlobalSecret(method, field.key)"
-                                    type="button"
-                                    class="btn btn-link btn-sm p-0 ms-2 text-danger"
-                                    @click="clearGlobalSecret(method.code, field.key)"
+                            <template v-if="field.type === 'bool'">
+                                <label class="form-label small mb-1 d-block">{{ field.label }}</label>
+                                <div class="form-check form-switch">
+                                    <input
+                                        :id="`${method.code}-${field.key}`"
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="globalDrafts[method.code][field.key]"
+                                    >
+                                    <span class="small ms-1">
+                                        {{ globalDrafts[method.code][field.key] ? 'Sí' : 'No' }}
+                                    </span>
+                                </div>
+                            </template>
+                            <template v-else>
+                                <label class="form-label small mb-1" :for="`${method.code}-${field.key}`">
+                                    {{ field.label }}
+                                    <button
+                                        v-if="hasGlobalSecret(method, field.key)"
+                                        type="button"
+                                        class="btn btn-link btn-sm p-0 ms-2 text-danger"
+                                        @click="clearGlobalSecret(method.code, field.key)"
+                                    >
+                                        Quitar
+                                    </button>
+                                </label>
+                                <input
+                                    :id="`${method.code}-${field.key}`"
+                                    v-model="globalDrafts[method.code][field.key]"
+                                    type="text"
+                                    class="form-control form-control-sm"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    :placeholder="hasGlobalSecret(method, field.key)
+                                        ? `${maskText()} (guardado)`
+                                        : field.key"
                                 >
-                                    Quitar
-                                </button>
-                            </label>
-                            <input
-                                :id="`${method.code}-${field.key}`"
-                                v-model="globalDrafts[method.code][field.key]"
-                                type="text"
-                                class="form-control form-control-sm"
-                                autocomplete="off"
-                                spellcheck="false"
-                                :placeholder="hasGlobalSecret(method, field.key)
-                                    ? `${maskText()} (guardado)`
-                                    : field.key"
-                            >
-                            <div
-                                v-if="hasGlobalSecret(method, field.key)"
-                                class="form-text small text-success"
-                            >
-                                <i class="bi bi-check-circle-fill me-1"></i>
-                                Secreto guardado. Dejalo vacío para no cambiarlo.
-                            </div>
+                                <div
+                                    v-if="hasGlobalSecret(method, field.key)"
+                                    class="form-text small text-success"
+                                >
+                                    <i class="bi bi-check-circle-fill me-1"></i>
+                                    Secreto guardado. Dejalo vacío para no cambiarlo.
+                                </div>
+                            </template>
                         </div>
                     </div>
 

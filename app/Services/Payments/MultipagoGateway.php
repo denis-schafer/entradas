@@ -58,6 +58,36 @@ class MultipagoGateway extends PaymentGateway
     }
 
     /**
+     * Modulo QR habilitado (QR que identifica al cliente; cobra la deuda
+     * presentada). Default: habilitado si nunca se configuro.
+     */
+    public function qrEnabled(): bool
+    {
+        return $this->boolConfig('qr_enabled', true);
+    }
+
+    /**
+     * Modulo Boton de pago (codigo de barras PUM con importe y vencimiento).
+     */
+    public function buttonEnabled(): bool
+    {
+        return $this->boolConfig('button_enabled', true);
+    }
+
+    private function boolConfig(string $key, bool $default): bool
+    {
+        $config = $this->methodConfig();
+
+        if (! array_key_exists($key, $config)) {
+            return $default;
+        }
+
+        $value = $config[$key];
+
+        return $value === true || $value === 1 || $value === '1' || $value === 'true';
+    }
+
+    /**
      * Codigo de cliente (nuestro order_id) con los digitos que pide el convenio.
      */
     public function clientCode(int $orderId): string
