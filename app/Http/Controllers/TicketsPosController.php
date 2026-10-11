@@ -4,6 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\OrderPaymentService;
+use App\Services\Payments\EventPaymentMethods;
+use App\Services\Payments\MercadoPagoCheckout;
+use App\Services\Payments\PaymentGatewayRegistry;
+use App\Services\Payments\PaymentSetupException;
 use App\Services\TicketOrderService;
 use App\Support\QrRenderer;
 use Illuminate\Http\JsonResponse;
@@ -12,11 +16,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * POS de la caja: venta en efectivo.
+ * POS de la caja.
  *
- * Solo efectivo por ahora: la venta se cierra en el momento, se marca pagada y
- * se emite el comprobante con los QR. El vendedor trabaja acotado a los eventos
- * que tiene asignados; el administrador ve todos.
+ * El vendedor cobra en efectivo (la venta se cierra en el acto) o genera un
+ * link de pago (Checkout Pro de MP o codigo Multipago) para mandarle al
+ * comprador; en ese caso la orden queda pendiente hasta que el webhook la
+ * acredita. El operador trabaja acotado a los eventos que tiene asignados y a
+ * los medios de pago que tiene habilitados; el administrador ve todo.
  */
 class TicketsPosController extends Controller
 {
@@ -147,8 +153,13 @@ class TicketsPosController extends Controller
     }
 
     /**
-     * Cierra una venta en efectivo: crea la orden, la marca pagada y devuelve
-     * el comprobante.
+     * Cierra una venta desde el POS.
+     *
+     * En efectivo la orden se marca pagada en el acto y se devuelve el
+     * comprobante con los QR. Con un medio de pago la orden queda pendiente y
+     * se devuelve el link de pago (Checkout Pro de MP o codigo Multipago) para
+     * que el vendedor se lo mande al comprador; el link de la entrada recien
+     * queda disponible cuando el webhook acredita el pago.
      */
     public function sell(Request $request): JsonResponse
     {
@@ -160,6 +171,8 @@ class TicketsPosController extends Controller
             'items' => 'required|array|min:1',
             'items.*.ticket_type_id' => 'required|integer',
             'items.*.qty' => 'required|integer|min:1',
+            'payment_method' => 'nullable|string|in:efectivo,mercadopago,multipago',
+            'payment_method_variant' => 'nullable|string|in:qr,button',
         ]);
 
         $event = DB::table('tickets_events')->where('id', $validated['event_id'])->first();
@@ -176,38 +189,21 @@ class TicketsPosController extends Controller
             ]);
         }
 
-        $items = [];
+        $items = $this->prepareItems((int) $event->id, $validated['items']);
 
-        foreach ($validated['items'] as $item) {
-            $type = DB::table('tickets_event_ticket_types')
-                ->where('event_id', $event->id)
-                ->where('id', $item['ticket_type_id'])
-                ->where('enable', true)
-                ->first();
+        if (is_string($items)) {
+            return response()->json(['message' => $items], 422);
+        }
 
-            if (! $type) {
-                return response()->json([
-                    'message' => "Tipo de entrada {$item['ticket_type_id']} no disponible",
-                ], 422);
+        $method = $validated['payment_method'] ?? 'efectivo';
+        $variant = $validated['payment_method_variant'] ?? null;
+
+        if ($method !== 'efectivo') {
+            $denied = $this->chargingDenied($actor, (int) $event->id, $method, $variant);
+
+            if ($denied !== null) {
+                return response()->json(['message' => $denied], 422);
             }
-
-            if ($type->stock !== null && ($type->sold_count + $item['qty']) > $type->stock) {
-                return response()->json([
-                    'message' => "Stock insuficiente para {$type->name}",
-                ], 422);
-            }
-
-            if ($item['qty'] > $type->max_per_order) {
-                return response()->json([
-                    'message' => "Maximo por venta para {$type->name}: {$type->max_per_order}",
-                ], 422);
-            }
-
-            $items[] = [
-                'ticket_type_id' => (int) $type->id,
-                'qty' => (int) $item['qty'],
-                'unit_price' => round((float) $type->price, 2),
-            ];
         }
 
         $result = $this->orders->createOrder($event, [
@@ -224,22 +220,132 @@ class TicketsPosController extends Controller
             'user_agent' => substr((string) $request->userAgent(), 0, 500),
         ]);
 
-        $order = DB::table('tickets_orders')->where('id', $result['id'])->first();
+        if ($method === 'efectivo') {
+            $order = DB::table('tickets_orders')->where('id', $result['id'])->first();
 
-        // El efectivo se acredita en el acto: no hay webhook ni espera.
-        $this->payments->markPaid(
-            $order,
-            'efectivo-'.$result['id'],
-            ['transaction_amount' => $result['total']],
-            'efectivo',
-        );
+            // El efectivo se acredita en el acto: no hay webhook ni espera.
+            $this->payments->markPaid(
+                $order,
+                'efectivo-'.$result['id'],
+                ['transaction_amount' => $result['total']],
+                'efectivo',
+            );
 
-        return response()->json($this->receiptPayload($result['id']), 201);
+            return response()->json($this->receiptPayload($result['id']), 201);
+        }
+
+        // La orden queda pendiente; dejamos registrado el medio elegido.
+        DB::table('tickets_orders')->where('id', $result['id'])->update([
+            'payment_method' => $method,
+            'updated_at' => now(),
+        ]);
+
+        try {
+            $payment = $this->buildPayment((int) $result['id'], $method, $variant, false);
+        } catch (PaymentSetupException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->status());
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Error: '.$e->getMessage()], 500);
+        }
+
+        $payload = $this->receiptPayload($result['id']);
+        $payload['payment'] = $payment;
+
+        return response()->json($payload, 201);
+    }
+
+    /**
+     * Medios con los que ESTE operador puede cobrar en un evento. El efectivo
+     * va siempre primero; los medios de pago solo si el evento los tiene
+     * habilitados y el operador tiene permiso (el admin, sin restriccion).
+     */
+    public function paymentMethods(Request $request, int $eventId): JsonResponse
+    {
+        $actor = $request->user();
+        $event = DB::table('tickets_events')->where('id', $eventId)->first();
+
+        if (! $event || ! $this->eventInScope($actor, $eventId)) {
+            return response()->json(['message' => 'Evento no disponible'], 404);
+        }
+
+        $methods = [[
+            'code' => 'efectivo',
+            'variant' => null,
+            'name' => 'Efectivo',
+            'type' => 'cash',
+            'subtitle' => 'Cobro inmediato en la caja',
+        ]];
+
+        $allowed = ($actor && $actor->isStaffAdmin()) ? null : ($actor ? $actor->allowedPaymentMethodCodes() : []);
+
+        foreach (EventPaymentMethods::forEvent($eventId) as $method) {
+            if ($allowed !== null && ! in_array($method['code'], $allowed, true)) {
+                continue;
+            }
+
+            $methods[] = $method;
+        }
+
+        return response()->json(['methods' => $methods]);
+    }
+
+    /**
+     * Link de pago de una venta pendiente (reenvio). Idempotente: reusa la
+     * preferencia de MP ya creada y el codigo Multipago es deterministico.
+     */
+    public function paymentLink(Request $request, int $id): JsonResponse
+    {
+        $order = DB::table('tickets_orders')->where('id', $id)->first();
+
+        if (! $order || ! $this->canSeeOrder($request->user(), $order)) {
+            return response()->json(['message' => 'Venta no encontrada'], 404);
+        }
+
+        if ($order->status !== 'pending' || ! in_array((string) $order->payment_method, ['mercadopago', 'multipago'], true)) {
+            return response()->json(['message' => 'Esta venta no tiene un link de pago pendiente.'], 422);
+        }
+
+        try {
+            $payment = $this->buildPayment((int) $order->id, (string) $order->payment_method, null, true);
+        } catch (PaymentSetupException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->status());
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Error: '.$e->getMessage()], 500);
+        }
+
+        $payload = $this->receiptPayload((int) $order->id);
+        $payload['payment'] = $payment;
+
+        return response()->json($payload);
+    }
+
+    /**
+     * SVG del QR del codigo Multipago de una venta pendiente.
+     */
+    public function multipagoQrSvg(Request $request, int $id)
+    {
+        $order = DB::table('tickets_orders')->where('id', $id)->first();
+
+        if (! $order || ! $this->canSeeOrder($request->user(), $order)) {
+            abort(404);
+        }
+
+        if ($order->status !== 'pending' || $order->payment_method !== 'multipago') {
+            abort(404);
+        }
+
+        $code = $this->multipagoCodeForOrder($order);
+
+        return response(QrRenderer::svg($code, (int) $request->query('size', 400)), 200, [
+            'Content-Type' => 'image/svg+xml',
+            'Cache-Control' => 'private, max-age=60',
+        ]);
     }
 
     /**
      * Historial de ventas del POS. El vendedor ve las suyas; el administrativo
-     * y el administrador ven las de sus eventos.
+     * y el administrador ven las de sus eventos. Incluye las pendientes (link
+     * de pago enviado) y las ya acreditadas.
      */
     public function sales(Request $request): JsonResponse
     {
@@ -247,11 +353,11 @@ class TicketsPosController extends Controller
 
         $query = DB::table('tickets_orders as o')
             ->join('tickets_events as e', 'e.id', '=', 'o.event_id')
-            ->where('o.payment_method', 'efectivo')
+            ->whereNotNull('o.seller_user_id')
             ->orderByDesc('o.id')
             ->select([
                 'o.id', 'o.total', 'o.status', 'o.created_at', 'o.paid_at',
-                'o.buyer_name', 'o.buyer_dni', 'o.public_token',
+                'o.payment_method', 'o.buyer_name', 'o.buyer_dni', 'o.public_token',
                 'e.name as event_name',
                 DB::raw('(SELECT COUNT(*) FROM tickets_tickets t WHERE t.order_id = o.id) as ticket_count'),
             ]);
@@ -339,6 +445,146 @@ class TicketsPosController extends Controller
             'order' => $order,
             'tickets' => $tickets,
         ];
+    }
+
+    /**
+     * Valida los items del carrito y arma el array para TicketOrderService.
+     * Devuelve un string con el mensaje de error si algo no esta disponible.
+     *
+     * @param  array<int,array{ticket_type_id:int|string,qty:int|string}>  $items
+     * @return array<int,array{ticket_type_id:int,qty:int,unit_price:float}>|string
+     */
+    private function prepareItems(int $eventId, array $items)
+    {
+        $prepared = [];
+
+        foreach ($items as $item) {
+            $type = DB::table('tickets_event_ticket_types')
+                ->where('event_id', $eventId)
+                ->where('id', $item['ticket_type_id'])
+                ->where('enable', true)
+                ->first();
+
+            if (! $type) {
+                return "Tipo de entrada {$item['ticket_type_id']} no disponible";
+            }
+
+            if ($type->stock !== null && ($type->sold_count + (int) $item['qty']) > $type->stock) {
+                return "Stock insuficiente para {$type->name}";
+            }
+
+            if ((int) $item['qty'] > $type->max_per_order) {
+                return "Maximo por venta para {$type->name}: {$type->max_per_order}";
+            }
+
+            $prepared[] = [
+                'ticket_type_id' => (int) $type->id,
+                'qty' => (int) $item['qty'],
+                'unit_price' => round((float) $type->price, 2),
+            ];
+        }
+
+        return $prepared;
+    }
+
+    /**
+     * Devuelve el motivo por el que el operador no puede cobrar con ese medio,
+     * o null si puede. El efectivo no pasa por aca (siempre disponible).
+     */
+    private function chargingDenied(?User $actor, int $eventId, string $method, ?string $variant): ?string
+    {
+        if (! $actor) {
+            return 'No autenticado.';
+        }
+
+        $available = EventPaymentMethods::forEvent($eventId);
+        $codes = array_unique(array_column($available, 'code'));
+
+        if (! in_array($method, $codes, true)) {
+            return 'Ese medio de pago no esta disponible para este evento.';
+        }
+
+        if ($method === 'multipago') {
+            $variants = [];
+
+            foreach ($available as $m) {
+                if ($m['code'] === 'multipago') {
+                    $variants[] = $m['variant'];
+                }
+            }
+
+            if (! in_array($variant, $variants, true)) {
+                return 'Elegi como cobrar con Multipago (QR o boton de pago).';
+            }
+        }
+
+        if (! $actor->isStaffAdmin() && ! in_array($method, $actor->allowedPaymentMethodCodes(), true)) {
+            return 'Tu usuario no tiene habilitado ese medio de pago.';
+        }
+
+        return null;
+    }
+
+    /**
+     * Arma los datos de cobro de una orden no-efectivo: link de Checkout Pro de
+     * MP o codigo Multipago. Con $reuse intenta no generar uno nuevo.
+     *
+     * @return array<string,mixed>
+     *
+     * @throws PaymentSetupException
+     */
+    private function buildPayment(int $orderId, string $method, ?string $variant, bool $reuse): array
+    {
+        $order = DB::table('tickets_orders')->where('id', $orderId)->first();
+
+        if ($method === 'mercadopago') {
+            $preference = app(MercadoPagoCheckout::class)->preferenceForOrder($order, $reuse);
+
+            return [
+                'method' => 'mercadopago',
+                'variant' => null,
+                'status' => 'pending',
+                'link' => $preference['init_point'] ?: $preference['sandbox_init_point'],
+                'preference_id' => $preference['preference_id'],
+                'code' => null,
+                'qr_url' => null,
+            ];
+        }
+
+        // Multipago: el PUM es deterministico (orden + vencimiento + importe).
+        $gateway = PaymentGatewayRegistry::for('multipago');
+        $code = $this->multipagoCodeForOrder($order);
+
+        return [
+            'method' => 'multipago',
+            'variant' => $variant ?: 'qr',
+            'status' => 'pending',
+            'link' => $gateway->pumUrl($code),
+            'preference_id' => $code,
+            'code' => $code,
+            'qr_url' => "/tickets-admin/pos/orders/{$orderId}/multipago-qr.svg",
+        ];
+    }
+
+    /**
+     * Genera (o recalcula) el codigo Multipago de una orden y lo guarda como
+     * payment_reference para que el webhook pueda resolver el pago.
+     */
+    private function multipagoCodeForOrder(object $order): string
+    {
+        $gateway = PaymentGatewayRegistry::for('multipago');
+        $due = now()->addHours(24)->toDateString();
+        $code = $gateway->pumCode((int) $order->id, $due, (float) $order->total);
+
+        if ((string) $order->payment_reference !== $code) {
+            DB::table('tickets_orders')->where('id', $order->id)->update([
+                'payment_method' => 'multipago',
+                'payment_reference' => $code,
+                'updated_at' => now(),
+            ]);
+        }
+
+        return $code;
     }
 
     /**

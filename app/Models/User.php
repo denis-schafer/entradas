@@ -212,4 +212,30 @@ class User extends Authenticatable
             ->map(fn ($id) => (int) $id)
             ->all();
     }
+
+    /**
+     * IDs de los medios de pago que este operador puede cobrar desde el POS
+     * (tickets_user_payment_method). Lista vacia = solo efectivo.
+     */
+    public function paymentMethodIds(): array
+    {
+        return DB::table('tickets_user_payment_method')
+            ->where('user_id', $this->id)
+            ->pluck('payment_method_id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    /**
+     * Codes de los medios de pago asignados a este operador. El administrador
+     * no consulta esto: usa todos los medios habilitados del evento.
+     */
+    public function allowedPaymentMethodCodes(): array
+    {
+        return DB::table('tickets_user_payment_method as up')
+            ->join('tickets_payment_methods as pm', 'pm.id', '=', 'up.payment_method_id')
+            ->where('up.user_id', $this->id)
+            ->pluck('pm.code')
+            ->all();
+    }
 }

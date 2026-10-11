@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Payments\EventPaymentMethods;
 use App\Services\Payments\PaymentGatewayRegistry;
 use App\Support\QrRenderer;
 use Illuminate\Http\JsonResponse;
@@ -42,62 +43,10 @@ class TicketsCheckoutController extends Controller
             return response()->json(['message' => 'Orden no encontrada o ya pagada'], 404);
         }
 
-        $methods = [];
-
-        foreach (PaymentGatewayRegistry::all() as $gateway) {
-            if (! $gateway->eventEnabled((int) $order->event_id)) {
-                continue;
-            }
-
-            if ($gateway->code() === 'mercadopago') {
-                // Solo se ofrece si ademas hay con que cobrar.
-                if (empty($gateway->eventToken((int) $order->event_id))) {
-                    continue;
-                }
-
-                $methods[] = [
-                    'code' => 'mercadopago',
-                    'name' => $gateway->name(),
-                    'type' => 'redirect',
-                    'subtitle' => 'Tarjeta, Rapipago, Pago Facil',
-                ];
-
-                continue;
-            }
-
-            if ($gateway->code() === 'multipago') {
-                // Multipago expone dos modalidades independientes: QR y boton
-                // de pago. Cada evento habilita o deshabilita cada una.
-                if (trim((string) $gateway->methodConfig()['bersacode'] ?? '') === ''
-                    || trim((string) $gateway->methodConfig()['username'] ?? '') === '') {
-                    continue;
-                }
-
-                $eventId = (int) $order->event_id;
-
-                if ($gateway->qrEnabled($eventId)) {
-                    $methods[] = [
-                        'code' => 'multipago',
-                        'variant' => 'qr',
-                        'name' => 'Multipago (QR)',
-                        'type' => 'multipago-qr',
-                        'subtitle' => 'Escaneá el QR con cualquier billetera virtual',
-                    ];
-                }
-
-                if ($gateway->buttonEnabled($eventId)) {
-                    $methods[] = [
-                        'code' => 'multipago',
-                        'variant' => 'button',
-                        'name' => 'Multipago (Botón de pago)',
-                        'type' => 'multipago-button',
-                        'subtitle' => 'Código de barras para pagar en Multipago',
-                    ];
-                }
-            }
-        }
-
-        return response()->json(['methods' => $methods, 'order_id' => (int) $order->id]);
+        return response()->json([
+            'methods' => EventPaymentMethods::forEvent((int) $order->event_id),
+            'order_id' => (int) $order->id,
+        ]);
     }
 
     /**
