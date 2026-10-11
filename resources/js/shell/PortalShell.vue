@@ -23,6 +23,7 @@ import OrderResultView from '../portal/OrderResultView.vue';
 import MyTicketsView from '../portal/MyTicketsView.vue';
 import MyOrdersView from '../portal/MyOrdersView.vue';
 import ProfileView from '../portal/ProfileView.vue';
+import PaymentNotice from '../portal/PaymentNotice.vue';
 
 defineProps({
     user: { type: Object, required: true },
@@ -193,6 +194,8 @@ onBeforeUnmount(() => {
                 </span>
             </div>
         </footer>
+
+        <PaymentNotice @navigate="(name) => go(name)" />
     </div>
 </template>
 

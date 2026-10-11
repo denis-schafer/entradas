@@ -108,6 +108,16 @@ export function rememberOrder(order) {
         // motivo para romper el pago: la pantalla de resultado cae al backend
         // para ubicar la orden.
     }
+
+    // El observador global de pagos escucha esto para empezar a seguir la orden
+    // nueva al instante, sin esperar al proximo polling.
+    try {
+        window.dispatchEvent(new CustomEvent('et:order-created', {
+            detail: { order_id: order.order_id ?? null },
+        }));
+    } catch {
+        // sin window (SSR/tests) no hay a quien avisar.
+    }
 }
 
 export function readPendingOrder() {
