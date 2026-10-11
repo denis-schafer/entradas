@@ -18,9 +18,26 @@ class TicketsUserController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        $actor = $request->user();
+
         $query = User::query()
             ->where('is_admin', true)
             ->select(['id', 'name', 'email', 'dni', 'phone', 'role', 'enable', 'must_change_password', 'last_login_at', 'created_at']);
+
+        /*
+        | El administrativo no ve a los admins ni a otros administrativos: solo
+        | a los vendedores que comparten alguno de sus eventos. Es la misma
+        | lista que puede gestionar, para que el listado y los permisos no se
+        | contradigan.
+        */
+        if ($actor && $actor->isAdministrativo()) {
+            $sharedIds = DB::table('tickets_event_user')
+                ->whereIn('event_id', $actor->assignedEventIds() ?: [0])
+                ->pluck('user_id');
+
+            $query->where('role', User::ROLE_SELLER)
+                ->whereIn('id', $sharedIds);
+        }
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -48,26 +65,47 @@ class TicketsUserController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $actor = $request->user();
+
         $validated = $request->validate([
             'name' => 'required|string|max:150',
             'email' => 'required|email|max:150|unique:users,email',
             'password' => 'required|string|min:8',
             'dni' => 'nullable|string|max:30',
             'phone' => 'nullable|string|max:30',
-            // admin entra al panel entero; cajero solo a escanear y a entregar
-            // pulseras. Sin esto, "crear usuario del panel" es sinonimo de
-            // administrador y no hay forma de dar de alta al de la puerta.
-            'role' => ['nullable', Rule::in([User::ROLE_ADMIN, User::ROLE_CASHIER])],
+            /*
+            | admin entra al panel entero; cajero solo escanea y entrega
+            | pulseras; vendedor solo vende en efectivo; administrativo ve las
+            | estadisticas de sus eventos, da de alta vendedores y vende. Sin
+            | esto, "crear usuario del panel" seria sinonimo de administrador.
+            */
+            'role' => ['nullable', Rule::in([
+                User::ROLE_ADMIN,
+                User::ROLE_CASHIER,
+                User::ROLE_ADMINISTRATIVO,
+                User::ROLE_SELLER,
+            ])],
             'enable' => 'boolean',
             /*
-            | Eventos a los que este cajero va a poder entrar y escanear. Solo
-            | aplica al rol cajero: el administrador ignora la asignacion y
-            | ve todos los eventos igual. Sin asignaciones, el cajero no ve
-            | ni escanea ninguno.
+            | Eventos a los que este operador (cajero, vendedor o administrativo)
+            | va a poder entrar. El administrador ignora la asignacion y ve
+            | todos los eventos igual. Sin asignaciones, no ve ni opera ninguno.
             */
             'event_ids' => 'sometimes|array',
             'event_ids.*' => 'integer|exists:tickets_events,id',
         ]);
+
+        $role = $validated['role'] ?? User::ROLE_ADMIN;
+        $eventIds = $validated['event_ids'] ?? [];
+
+        /*
+        | Un administrativo solo puede dar de alta vendedores, y solo en sus
+        | propios eventos. Se ignora cualquier otro rol que mande el cliente.
+        */
+        if ($actor && $actor->isAdministrativo()) {
+            $role = User::ROLE_SELLER;
+            $eventIds = $this->restrictEventIds($actor, $eventIds);
+        }
 
         $dni = isset($validated['dni']) ? preg_replace('/\D+/', '', $validated['dni']) : null;
         $dni = ($dni === '' ? null : $dni);
@@ -79,7 +117,7 @@ class TicketsUserController extends Controller
             'dni' => $dni,
             'password' => Hash::make($validated['password']),
             'is_admin' => true,
-            'role' => $validated['role'] ?? User::ROLE_ADMIN,
+            'role' => $role,
             'enable' => $validated['enable'] ?? true,
             'must_change_password' => $validated['enable'] ?? true,
             'email_verified_at' => now(),
@@ -87,25 +125,39 @@ class TicketsUserController extends Controller
             'updated_at' => now(),
         ]);
 
-        $this->syncEvents($id, $validated['event_ids'] ?? []);
+        /*
+        | Las asignaciones de evento solo aplican a los roles que operan acotados
+        | (cajero, vendedor, administrativo). Al admin se le deja la tabla
+        | limpia para no arrastrar filas viejas.
+        */
+        $this->syncEvents($id, $this->appliesEventScope($role) ? $eventIds : []);
 
         return response()->json(['id' => $id, 'message' => 'Usuario creado'], 201);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
+        $actor = $request->user();
         $user = User::find($id);
 
         if (! $user) {
             return response()->json(['message' => 'Usuario no encontrado'], 404);
         }
 
+        // Un administrativo solo puede tocar vendedores de sus eventos.
+        $this->assertManageable($actor, $user);
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:150',
             'email' => ['sometimes', 'email', 'max:150', Rule::unique('users', 'email')->ignore($id)],
             'dni' => 'nullable|string|max:30',
             'phone' => 'nullable|string|max:30',
-            'role' => ['sometimes', Rule::in([User::ROLE_ADMIN, User::ROLE_CASHIER])],
+            'role' => ['sometimes', Rule::in([
+                User::ROLE_ADMIN,
+                User::ROLE_CASHIER,
+                User::ROLE_ADMINISTRATIVO,
+                User::ROLE_SELLER,
+            ])],
             'enable' => 'boolean',
             /*
             | Cambio de contrasena opcional desde el admin: si llega vacio se
@@ -117,6 +169,18 @@ class TicketsUserController extends Controller
             'event_ids' => 'sometimes|array',
             'event_ids.*' => 'integer|exists:tickets_events,id',
         ]);
+
+        /*
+        | Un administrativo no puede cambiarle el rol a un vendedor (ni
+        | promoverlo), y solo lo mueve dentro de sus propios eventos.
+        */
+        if ($actor && $actor->isAdministrativo()) {
+            $validated['role'] = User::ROLE_SELLER;
+
+            if (array_key_exists('event_ids', $validated)) {
+                $validated['event_ids'] = $this->restrictEventIds($actor, $validated['event_ids']);
+            }
+        }
 
         /*
         | El DNI se normaliza sin puntos ni guiones antes de guardar, igual que
@@ -172,6 +236,8 @@ class TicketsUserController extends Controller
             return response()->json(['message' => 'Usuario no encontrado'], 404);
         }
 
+        $this->assertManageable($request->user(), $user);
+
         if ($request->user()?->id === $id) {
             return response()->json(['message' => 'No podes eliminar tu propio usuario'], 422);
         }
@@ -192,9 +258,13 @@ class TicketsUserController extends Controller
      */
     public function resetPassword(Request $request, int $id): JsonResponse
     {
-        if (! User::find($id)) {
+        $user = User::find($id);
+
+        if (! $user) {
             return response()->json(['message' => 'Usuario no encontrado'], 404);
         }
+
+        $this->assertManageable($request->user(), $user);
 
         $newPassword = $request->input('new_password') ?: bin2hex(random_bytes(4));
 
@@ -286,10 +356,11 @@ class TicketsUserController extends Controller
     /**
      * Evita dejar el panel sin ningun administrador de verdad.
      *
-     * Cuenta solo los role=admin: un cajero activo no sirve de respaldo, porque
-     * no puede reconfigurar MercadoPago ni dar de alta a otro operador. Si no,
-     * desactivar al ultimo administrador mientras hay un cajero en turno
-     * dejaria la cuenta sin salida para siempre.
+     * Cuenta solo los role=admin (o NULL, que es como quedaron los operadores
+     * previos al rol): un cajero, vendedor o administrativo activo no sirve de
+     * respaldo, porque ninguno puede reconfigurar MercadoPago ni dar de alta a
+     * otro administrador. Si no, desactivar al ultimo administrador mientras
+     * hay un vendedor en turno dejaria la cuenta sin salida para siempre.
      */
     private function isLastActiveAdmin(int $id): bool
     {
@@ -299,16 +370,63 @@ class TicketsUserController extends Controller
             return false;
         }
 
-        $activeStaff = User::where('is_admin', true)
+        $activeAdmins = User::where('is_admin', true)
             ->where('enable', true)
-            ->where(fn ($q) => $q->where('role', '!=', User::ROLE_CASHIER)->orWhereNull('role'))
+            ->where(fn ($q) => $q->where('role', User::ROLE_ADMIN)->orWhereNull('role'))
             ->count();
 
-        // Si el usuario que se toca no es de los que cuentan, no es el ultimo.
-        if (! $user->isCashier()) {
-            return $activeStaff <= 1;
+        // Si el usuario que se toca no es administrador, no es el ultimo admin.
+        if (! $user->isStaffAdmin()) {
+            // Solo se bloquea si ademas es el ultimo usuario activo del panel,
+            // para no dejar la instalacion sin ningun acceso.
+            return User::where('is_admin', true)->where('enable', true)->count() <= 1;
         }
 
-        return User::where('is_admin', true)->where('enable', true)->count() <= 1;
+        return $activeAdmins <= 1;
+    }
+
+    /**
+     * Que un administrativo solo pueda tocar a los vendedores de sus eventos.
+     * El administrador no tiene limites: assertManageable no hace nada.
+     */
+    private function assertManageable(?User $actor, User $target): void
+    {
+        if (! $actor || ! $actor->isAdministrativo()) {
+            return;
+        }
+
+        if ($target->roleName() !== User::ROLE_SELLER) {
+            abort(403, 'Solo podes gestionar vendedores.');
+        }
+
+        $shared = array_intersect($actor->assignedEventIds(), $target->assignedEventIds());
+
+        if (! $shared) {
+            abort(403, 'Ese vendedor no pertenece a tus eventos.');
+        }
+    }
+
+    /**
+     * Deja, de una lista de eventos, solo los que el administrativo tiene
+     * asignados. Evita que asigne vendedores a eventos que no administra.
+     */
+    private function restrictEventIds(User $actor, array $eventIds): array
+    {
+        $assigned = $actor->assignedEventIds();
+
+        return array_values(array_intersect(array_map('intval', $eventIds), $assigned));
+    }
+
+    /**
+     * Solo los roles que operan acotados a eventos guardan asignaciones. El
+     * administrador ve todo y no necesita filas en el pivote.
+     */
+    private function appliesEventScope(string $role): bool
+    {
+        return in_array($role, [
+            User::ROLE_CASHIER,
+            User::ROLE_SELLER,
+            User::ROLE_ADMINISTRATIVO,
+        ], true);
     }
 }

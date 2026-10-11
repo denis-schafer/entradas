@@ -250,12 +250,12 @@ class PurchaseFlowTest extends TestCase
     }
 
     /**
-     * El admin con contrasena temporal entra al panel a una pantalla donde lo
-     * unico que puede hacer es cambiarla: el middleware responde 428 a todo lo
-     * demas. Si /auth/me no devuelve el flag, un F5 lo deja en una pantalla
-     * bloqueada sin salida.
+     * La contrasena temporal ya no obliga a cambiarla al primer ingreso: el
+     * admin entra al panel de una y el cambio queda como accion voluntaria
+     * desde "Mi contrasena". Si el flag volviera a bloquear con 428, el
+     * usuario nuevo quedaria trabado en una pantalla que no pedio ver.
      */
-    public function test_el_admin_con_contrasena_temporal_solo_puede_cambiarla(): void
+    public function test_el_admin_con_contrasena_temporal_entra_al_panel_sin_cambiarla(): void
     {
         $admin = $this->admin(['must_change_password' => true]);
 
@@ -266,12 +266,11 @@ class PurchaseFlowTest extends TestCase
         $me->assertOk();
         $this->assertTrue($me->json('user.must_change_password'));
 
-        // Todo el panel bloqueado con 428...
-        $this->getJson('/tickets-admin/dashboard')->assertStatus(428);
-        $this->getJson('/tickets-admin/events')->assertStatus(428);
-        $this->getJson('/tickets-admin/config')->assertStatus(428);
+        // El panel responde normal, sin 428 por la contrasena temporal.
+        $this->getJson('/tickets-admin/dashboard')->assertOk();
+        $this->getJson('/tickets-admin/events')->assertOk();
 
-        // ...menos el endpoint que resuelve el cambio.
+        // Y el cambio sigue disponible, voluntario.
         $changed = $this->postJson('/tickets-admin/auth/change-password', [
             'current_password' => 'secreto123',
             'password' => 'una-de-verdad-9',
@@ -279,12 +278,9 @@ class PurchaseFlowTest extends TestCase
         ]);
 
         $changed->assertOk();
-
-        // Y despues el panel se abre solo.
         $this->assertFalse($this->getJson('/tickets-admin/auth/me')->json('user.must_change_password'));
-        $this->getJson('/tickets-admin/dashboard')->assertOk();
 
-        // Con la vieja no se puede volver a cambiar.
+        // Con la vieja no se puede cambiar de nuevo.
         $this->postJson('/tickets-admin/auth/change-password', [
             'current_password' => 'secreto123',
             'password' => 'otra-de-verdad-9',
@@ -533,7 +529,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
 
         $row = DB::table('tickets_orders')->where('id', $order['order_id'])->first();
         $this->assertSame('paid', $row->status);
-        $this->assertSame('999888777', $row->mp_payment_id);
+        $this->assertSame('999888777', $row->payment_external_id);
         $this->assertNotNull($row->paid_at);
 
         // Reentrega: el estado no cambia ni se pisa paid_at.
@@ -549,6 +545,15 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
      */
     private function fakeMercadoPagoToken(int $eventId): void
     {
+        // El token de MP del evento ahora vive en el pivote de medios de pago.
+        $mp = DB::table('tickets_payment_methods')->where('code', 'mercadopago')->first();
+        if ($mp) {
+            DB::table('tickets_event_payment_method')->updateOrInsert(
+                ['event_id' => $eventId, 'payment_method_id' => $mp->id],
+                ['enabled' => 1, 'config' => json_encode(['access_token' => 'APP_USR-token-de-prueba']), 'updated_at' => now()]
+            );
+        }
+        // Compatibilidad con eventos preexistentes: si llegara a usarse, no rompe.
         DB::table('tickets_events')->where('id', $eventId)->update([
             'mp_access_token' => 'APP_USR-token-de-prueba',
         ]);
@@ -579,6 +584,46 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         ])->assertOk();
 
         $this->assertSame('pending', DB::table('tickets_orders')->where('id', $order['order_id'])->value('status'));
+    }
+
+    /**
+     * El retorno de MercadoPago (back_urls) llega a /tickets/mp/callback con
+     * toda la query del pago y tiene que terminar en la raiz de la SPA sin
+     * parametros. El endpoint esta declarado para contestar un redirect: si
+     * devuelve JSON, el TypeError del tipo de retorno tiraba un 500 al
+     * comprador justo al salir del pago.
+     */
+    public function test_retorno_de_mercadopago_redirige_a_la_raiz_sin_query(): void
+    {
+        $location = $this->get('/tickets/mp/callback?collection_status=approved&payment_id=181930078231'
+            .'&status=approved&external_reference=ENTRADAS-TICKET-1&preference_id=abc-123')
+            ->assertRedirect()
+            ->headers->get('Location');
+
+        $this->assertStringEndsWith('/', (string) parse_url($location, PHP_URL_PATH));
+        $this->assertStringNotContainsString('?', (string) $location);
+    }
+
+    /**
+     * El webhook llega por POST desde MercadoPago, sin sesion ni token CSRF.
+     * En los tests el middleware de CSRF se saltea siempre (runningUnitTests),
+     * asi que hay que forzar un ambiente que no sea testing para reproducir
+     * exactamente lo que le pasa al navegador de MP en produccion.
+     *
+     * Sin el wildcard en la exencion, /tickets/mp/webhook/1 no matcheaba el
+     * patron exacto "tickets/mp/webhook": MP recibia 419 (CSRF), no reintentaba,
+     * y el pago quedaba aprobado en MP con la orden todavia pendiente.
+     */
+    public function test_el_webhook_de_mp_pasa_el_csrf_con_event_id(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+
+        // Evento inexistente: llega al early-return del controller con 200
+        // sin llamar a la API de MP.
+        $this->postJson('/tickets/mp/webhook/999999', [
+            'type' => 'payment',
+            'data' => ['id' => '181930078231'],
+        ])->assertOk();
     }
 
     public function test_cancelar_orden_devuelve_el_stock(): void
@@ -660,6 +705,51 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
 
         $response->assertOk();
         $this->assertSame('invalid', $response->json('result'));
+    }
+
+    /**
+     * La pulsera se entrega y se revierte mientras la entrada este viva.
+     * Una entrada ya usada no se toca: a esa altura la pulsera acompana a la
+     * persona que ya paso por la puerta, y quitarla seria dejar entrar dos
+     * veces con la misma credencial.
+     */
+    public function test_no_se_puede_quitar_la_pulsera_de_una_entrada_usada(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $buyer = $this->buyer();
+
+        $order = $this->actingAs($buyer)->postJson('/tickets-portal/api/orders', [
+            'event_id' => $eventId,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+        ])->json();
+
+        DB::table('tickets_orders')->where('id', $order['order_id'])->update(['status' => 'paid']);
+
+        $ticket = DB::table('tickets_tickets')->where('order_id', $order['order_id'])->first();
+        $row = fn () => DB::table('tickets_tickets')->where('id', $ticket->id)->first();
+
+        // Entrada valida: se entrega y se revierte sin drama.
+        $this->actingAs($admin)
+            ->postJson("/tickets-admin/tickets/{$ticket->id}/wristband")
+            ->assertOk();
+        $this->assertTrue((bool) $row()->wristband_given);
+
+        $this->actingAs($admin)
+            ->postJson("/tickets-admin/tickets/{$ticket->id}/wristband", ['give' => false])
+            ->assertOk();
+        $this->assertFalse((bool) $row()->wristband_given);
+
+        // Entrada usada: entregar todavia vale, quitar no.
+        DB::table('tickets_tickets')
+            ->where('id', $ticket->id)
+            ->update(['status' => 'used', 'wristband_given' => true]);
+
+        $this->actingAs($admin)
+            ->postJson("/tickets-admin/tickets/{$ticket->id}/wristband", ['give' => false])
+            ->assertStatus(422)
+            ->assertJson(['message' => 'No se puede quitar la pulsera de una entrada ya usada']);
+
+        $this->assertTrue((bool) $row()->wristband_given);
     }
 
     public function test_comprador_no_entra_al_panel(): void
@@ -762,16 +852,16 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
     }
 
     /**
-     * El cajero tambien queda bloqueado por la contrasena temporal.
+     * El cajero con contrasena temporal entra y escanea sin cambiarla: el
+     * cambio ya no es un requisito del primer ingreso para nadie.
      */
-    public function test_el_cajero_tambien_tiene_que_cambiar_la_contrasena_temporal(): void
+    public function test_el_cajero_con_contrasena_temporal_puede_escanear_sin_cambiarla(): void
     {
         $cashier = $this->cashier(['must_change_password' => true]);
 
         $this->actingAs($cashier);
 
-        $this->getJson('/tickets-admin/dashboard')->assertStatus(428);
-        $this->getJson('/tickets-admin/scans')->assertStatus(428);
+        $this->getJson('/tickets-admin/scans')->assertOk();
         $this->assertTrue($this->getJson('/tickets-admin/auth/me')->json('user.must_change_password'));
 
         $this->postJson('/tickets-admin/auth/change-password', [
@@ -1009,7 +1099,17 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
             'mp_access_token' => 'APP_USR-token-guardado',
         ]);
 
-        // Input vacio: prueba el token guardado en el evento (caso OAuth).
+        // El token del evento vive en el pivote: se puede probar desde el
+        // formulario del evento; el test de config puede seguir esperando la
+        // respuesta del endpoint.
+        $mp = DB::table('tickets_payment_methods')->where('code', 'mercadopago')->first();
+        if ($mp) {
+            DB::table('tickets_event_payment_method')->updateOrInsert(
+                ['event_id' => $eventId, 'payment_method_id' => $mp->id],
+                ['enabled' => 1, 'config' => json_encode(['access_token' => 'APP_USR-token-guardado']), 'updated_at' => now()]
+            );
+        }
+
         $this->actingAs($admin)->postJson('/tickets-admin/config/mp-test', [
             'event_id' => $eventId,
         ])->assertOk()->assertJson(['ok' => true, 'source' => 'stored']);
@@ -1018,6 +1118,229 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $this->actingAs($admin)->postJson('/tickets-admin/config/mp-test', [
             'token' => 'APP_USR-pegado-a-mano',
         ])->assertOk()->assertJson(['ok' => true, 'source' => 'provided']);
+    }
+
+    /**
+     * El vendedor solo cierra ventas en efectivo desde el POS, acotado a los
+     * eventos que tiene asignados. No ve administracion, ordenes, compradores,
+     * estadisticas ni configuracion: el menu del panel se arma con la lista de
+     * rutas que permite su rol.
+     */
+    public function test_el_vendedor_solo_vende_desde_el_pos(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+        $otherEventId = $this->actingAs($admin)->postJson('/tickets-admin/events', [
+            'name' => 'Festival Dos',
+            'starts_at' => now()->addWeeks(2)->toDateTimeString(),
+            'location' => 'Predio 2',
+            'capacity' => 100,
+            'status' => 'published',
+        ])->assertCreated()->json('id');
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+
+        $this->actingAs($seller);
+
+        // Lo suyo: el POS, y solo con el evento asignado.
+        $events = $this->getJson('/tickets-admin/pos/events');
+        $events->assertOk();
+        $ids = collect($events->json())->pluck('id')->all();
+        $this->assertContains($eventId, $ids);
+        $this->assertNotContains($otherEventId, $ids);
+
+        $this->getJson("/tickets-admin/pos/events/{$eventId}/ticket-types")->assertOk();
+        $this->getJson("/tickets-admin/pos/events/{$otherEventId}/ticket-types")->assertStatus(404);
+        $this->getJson('/tickets-admin/pos/buyers?dni=29923360')->assertOk();
+        $this->getJson('/tickets-admin/pos/sales')->assertOk();
+
+        $me = $this->getJson('/tickets-admin/auth/me');
+        $me->assertOk();
+        $this->assertSame('vendedor', $me->json('user.role'));
+        $this->assertSame(['pos', 'password'], $me->json('user.routes'));
+
+        // Su contrasena si el vendedor la cambia.
+        $this->postJson('/tickets-admin/auth/change-password', [
+            'current_password' => 'secreto123',
+            'password' => 'una-de-verdad-9',
+            'password_confirmation' => 'una-de-verdad-9',
+        ])->assertOk();
+
+        // Nada del panel de administracion.
+        $this->getJson('/tickets-admin/dashboard')->assertStatus(403);
+        $this->getJson('/tickets-admin/statistics')->assertStatus(403);
+        $this->getJson('/tickets-admin/orders')->assertStatus(403);
+        $this->getJson('/tickets-admin/tickets')->assertStatus(403);
+        $this->getJson('/tickets-admin/users')->assertStatus(403);
+        $this->getJson('/tickets-admin/users/buyers')->assertStatus(403);
+        $this->getJson('/tickets-admin/ads')->assertStatus(403);
+        $this->getJson('/tickets-admin/config')->assertStatus(403);
+        $this->postJson('/tickets-admin/users', [
+            'name' => 'Nuevo',
+            'email' => 'nuevo@test.local',
+            'password' => 'secreto123',
+        ])->assertStatus(403);
+    }
+
+    /**
+     * El vendedor cierra una venta en efectivo: la orden queda pagada al
+     * instante, con el vendedor como responsable, y el comprobante lista las
+     * entradas cuando viene de una venta en persona.
+     */
+    public function test_el_vendedor_cierra_una_venta_en_efectivo_con_comprobante(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $buyer = $this->buyer();
+
+        $this->actingAs($seller);
+
+        $sale = $this->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 2]],
+        ]);
+        $sale->assertStatus(201);
+
+        $orderId = $sale->json('order.id');
+        $this->assertNotEmpty($orderId);
+
+        $order = DB::table('tickets_orders')->where('id', $orderId)->first();
+        $this->assertSame('paid', $order->status);
+        $this->assertSame('efectivo', $order->payment_method);
+        $this->assertSame($seller->id, (int) $order->seller_user_id);
+        $this->assertSame(10000, (int) $order->total);
+
+        // Dos entradas emitidas con su QR firmado y el stock corrido.
+        $tickets = DB::table('tickets_tickets')
+            ->where('order_id', $orderId)
+            ->select(['id', 'qr_payload'])
+            ->get();
+        $this->assertCount(2, $tickets);
+        $this->assertNotEmpty($tickets[0]->qr_payload);
+        $this->assertSame(2, (int) DB::table('tickets_event_ticket_types')
+            ->where('id', $typeId)
+            ->value('sold_count'));
+
+        // El comprobante responde con la orden y cada entrada con su URL de QR.
+        $receipt = $this->getJson("/tickets-admin/pos/orders/{$orderId}/receipt");
+        $receipt->assertOk();
+        $this->assertCount(2, $receipt->json('tickets'));
+        $this->assertStringContainsString('/pos/tickets/', (string) ($receipt->json('tickets.0.qr_url') ?? ''));
+
+        // Un vendedor sin el evento asignado no puede vender ni leer el recibo.
+        $other = $this->seller(['email' => 'otro@test.local']);
+        $this->actingAs($other);
+        $this->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+        ])->assertStatus(422);
+        $this->getJson("/tickets-admin/pos/orders/{$orderId}/receipt")->assertStatus(404);
+    }
+
+    /**
+     * El POS da de alta compradores que se identifican por DNI, con la
+     * contrasena inicial igual al DNI (la cambia el comprador en el portal).
+     * El DNI se normaliza sin puntos ni guiones, y no se duplica.
+     */
+    public function test_el_pos_alta_un_comprador_con_contrasena_igual_al_dni(): void
+    {
+        $seller = $this->seller();
+        $this->actingAs($seller);
+
+        $created = $this->postJson('/tickets-admin/pos/buyers', [
+            'name' => 'Cliente Tienda',
+            'dni' => '30.555.888',
+        ]);
+        $created->assertStatus(201);
+        $this->assertSame('30555888', $created->json('dni'));
+
+        $user = User::where('dni', '30555888')->first();
+        $this->assertNotNull($user);
+        $this->assertFalse((bool) $user->is_admin);
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('30555888', $user->password));
+
+        // DNI repetido no crea otra cuenta.
+        $this->postJson('/tickets-admin/pos/buyers', [
+            'name' => 'Otra Cuenta',
+            'dni' => '30.555.888',
+        ])->assertStatus(422);
+
+        // Y el login unico lleva a ese comprador al portal con su clave inicial.
+        $login = $this->postJson('/tickets-auth/login', [
+            'identifier' => '30555888',
+            'password' => '30555888',
+        ]);
+        $login->assertOk();
+        $this->assertFalse($login->json('is_admin'));
+    }
+
+    /**
+     * El administrativo ve las estadisticas de sus eventos, da de alta
+     * vendedores (aunque el cliente mande rol admin queda vendedor y solo en
+     * sus eventos) y vende. De la administracion no toca nada: ni compradores,
+     * ni publicidad, ni configuracion, ni las ordenes.
+     */
+    public function test_el_administrativo_gestiona_vendedores_de_sus_eventos(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+        $otherEventId = $this->actingAs($admin)->postJson('/tickets-admin/events', [
+            'name' => 'Festival Dos',
+            'starts_at' => now()->addWeeks(2)->toDateTimeString(),
+            'location' => 'Predio 2',
+            'capacity' => 100,
+            'status' => 'published',
+        ])->assertCreated()->json('id');
+
+        $administrativo = $this->administrativo();
+        $this->assignEvents($administrativo, [$eventId]);
+
+        $this->actingAs($administrativo);
+
+        // Estadisticas de sus eventos, gestion de vendedores y POS si.
+        $this->getJson('/tickets-admin/statistics')->assertOk();
+        $this->getJson('/tickets-admin/users')->assertOk();
+        $this->getJson('/tickets-admin/pos/events')->assertOk()->assertJsonCount(1);
+        $this->getJson("/tickets-admin/pos/events/{$eventId}/ticket-types")->assertOk();
+        $this->getJson("/tickets-admin/pos/events/{$otherEventId}/ticket-types")->assertStatus(404);
+
+        $me = $this->getJson('/tickets-admin/auth/me');
+        $this->assertSame('administrativo', $me->json('user.role'));
+        $this->assertSame(['statistics', 'users', 'pos', 'password'], $me->json('user.routes'));
+
+        // Da de alta un vendedor: aunque mande rol admin, queda vendedor y solo
+        // en sus eventos. El evento no asignado se descarta.
+        $created = $this->postJson('/tickets-admin/users', [
+            'name' => 'Vendedor Nuevo',
+            'email' => 'vendedor-nuevo@test.local',
+            'password' => 'secreto123',
+            'role' => 'admin',
+            'event_ids' => [$eventId, $otherEventId],
+        ]);
+        $created->assertStatus(201);
+
+        $newSeller = User::where('email', 'vendedor-nuevo@test.local')->first();
+        $this->assertSame(User::ROLE_SELLER, $newSeller->role);
+        $this->assertSame([$eventId], $newSeller->assignedEventIds());
+
+        // No puede promoverlo a otro rol.
+        $this->putJson("/tickets-admin/users/{$newSeller->id}", ['role' => 'admin'])->assertOk();
+        $this->assertSame(User::ROLE_SELLER, $newSeller->fresh()->roleName());
+
+        // Y un vendedor de otro evento no es de su jurisdiccion.
+        $outside = $this->seller(['email' => 'ajeno@test.local']);
+        $this->assignEvents($outside, [$otherEventId]);
+        $this->putJson("/tickets-admin/users/{$outside->id}", ['name' => 'Intento'])->assertStatus(403);
+        $this->deleteJson("/tickets-admin/users/{$outside->id}")->assertStatus(403);
+
+        // De la administracion no toca nada.
+        $this->getJson('/tickets-admin/dashboard')->assertStatus(403);
+        $this->getJson('/tickets-admin/users/buyers')->assertStatus(403);
+        $this->getJson('/tickets-admin/orders')->assertStatus(403);
+        $this->getJson('/tickets-admin/ads')->assertStatus(403);
+        $this->getJson('/tickets-admin/config')->assertStatus(403);
     }
 
     /**

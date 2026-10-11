@@ -4,16 +4,15 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Services\Realtime;
-use App\Support\QrPayload;
+use App\Services\TicketOrderService;
 use App\Support\QrRenderer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 class TicketPortalOrderController extends Controller
 {
+    public function __construct(private TicketOrderService $orders) {}
     /**
      * Crea una orden pendiente, reserva los boletos y descuenta stock.
      *
@@ -126,109 +125,36 @@ class TicketPortalOrderController extends Controller
         }
 
         $total = round($total, 2);
-        $publicToken = (string) Str::uuid();
 
-        // El secreto se resuelve ANTES de abrir la transaccion y no dentro: si
-        // todavia no existe, QrPayload::secret() lo crea, y hacerlo aca evita
-        // que el primer QR de una instalacion nueva quede firmado con cadena
-        // vacia (que despues el escaner rechaza por firma invalida).
-        $qrSecret = QrPayload::secret();
-        $ticketCount = array_sum(array_column($items, 'qty'));
+        $result = $this->orders->createOrder($event, [
+            'id' => $buyer['id'],
+            'name' => $buyer['name'],
+            'email' => $buyer['email'] ?? null,
+            'dni' => $buyer['dni'] ?? null,
+            'phone' => $buyer['phone'] ?? null,
+        ], $items, [
+            'payment_mode' => $paymentMode,
+            'installment_count' => $installmentCount,
+            'ip_address' => $request->ip(),
+            'user_agent' => substr((string) $request->userAgent(), 0, 500),
+        ]);
 
-        $orderId = DB::transaction(function () use (
-            $event, $buyer, $items, $total, $paymentMode, $installmentCount,
-            $publicToken, $qrSecret, $ticketCount, $request
-        ) {
-            /*
-            | El control de stock se repite DENTRO de la transaccion, con
-            | lockForUpdate. La validacion de arriba es para responder rapido y
-            | con un mensaje claro; esta es la que manda. Sin el lock, dos
-            | compradores que llegan con el ultimo boleto al mismo tiempo leen
-            | el mismo sold_count, los dos pasan el chequeo y se vende dos veces.
-            */
-            foreach ($items as $item) {
-                $locked = DB::table('tickets_event_ticket_types')
-                    ->where('id', $item['ticket_type_id'])
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $locked) {
-                    throw ValidationException::withMessages([
-                        'items' => 'Uno de los tipos de entrada ya no esta disponible',
-                    ]);
-                }
-
-                if ($locked->stock !== null && ($locked->sold_count + $item['qty']) > $locked->stock) {
-                    throw ValidationException::withMessages([
-                        'items' => "Stock insuficiente para {$locked->name}",
-                    ]);
-                }
-
-                if ($item['qty'] > $locked->max_per_order) {
-                    throw ValidationException::withMessages([
-                        'items' => "Maximo por compra para {$locked->name}: {$locked->max_per_order}",
-                    ]);
-                }
-            }
-
-$id = DB::table('tickets_orders')->insertGetId([
-                'public_token' => $publicToken,
-                'event_id' => $event->id,
-                'buyer_user_id' => $buyer['id'],
-                'buyer_name' => $buyer['name'],
-                'buyer_email' => (string) ($buyer['email'] ?? ''),
-                'buyer_dni' => $buyer['dni'] ?? null,
-                'buyer_phone' => $buyer['phone'] ?? null,
-                'total' => $total,
-                'subtotal' => $total,
-                'payment_mode' => $paymentMode,
-                'installment_count' => $installmentCount,
-                'status' => 'pending',
-                'ip_address' => $request->ip(),
-                'user_agent' => substr((string) $request->userAgent(), 0, 500),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            foreach ($items as $it) {
-                for ($i = 0; $i < $it['qty']; $i++) {
-                    $uuid = (string) Str::uuid();
-
-                    DB::table('tickets_tickets')->insert([
-                        'order_id' => $id,
-                        'event_id' => $event->id,
-                        'ticket_type_id' => $it['ticket_type_id'],
-                        'uuid' => $uuid,
-                        'qr_payload' => QrPayload::make($uuid, $qrSecret),
-                        'status' => 'valid',
-                        'wristband_given' => false,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                }
-
-                DB::table('tickets_event_ticket_types')
-                    ->where('id', $it['ticket_type_id'])
-                    ->increment('sold_count', $it['qty']);
-            }
-
-            return $id;
-        });
+        $orderId = $result['id'];
 
         $this->broadcastOrderChange($orderId, 'pending');
         $this->broadcastStock($items);
 
         // El panel ya puede mostrar la venta en vivo, sin esperar al webhook.
-        Realtime::orderCreated($orderId, (int) $event->id, (string) $buyer['name'], number_format($total, 2, '.', ''));
+        Realtime::orderCreated($orderId, (int) $event->id, (string) $buyer['name'], number_format($result['total'], 2, '.', ''));
 
         return response()->json([
             'order_id' => $orderId,
-            'public_token' => $publicToken,
-            'total' => $total,
-            'subtotal' => $total,
+            'public_token' => $result['public_token'],
+            'total' => $result['total'],
+            'subtotal' => $result['total'],
             'payment_mode' => $paymentMode,
             'installment_count' => $installmentCount,
-            'ticket_count' => $ticketCount,
+            'ticket_count' => $result['ticket_count'],
         ], 201);
     }
 

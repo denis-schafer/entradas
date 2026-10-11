@@ -18,6 +18,31 @@ import { toast } from '../ui/toast.js';
 
 const props = defineProps({ user: { type: Object, required: true } });
 
+/*
+| El administrativo gestiona unicamente vendedores de sus eventos: no ve la
+| lista completa ni el ABM de admins/administrativos, asi que el formulario se
+| limita al rol vendedor y oculta la pestana de compradores.
+*/
+const isAdministrativo = computed(() => props.user?.role === 'administrativo');
+
+// Roles que operan acotados a eventos asignados (el admin ve todo).
+const SCOPED_ROLES = ['cajero', 'vendedor', 'administrativo'];
+
+const ROLE_LABELS = {
+    admin: 'Administrador',
+    cajero: 'Cajero',
+    vendedor: 'Vendedor',
+    administrativo: 'Administrativo',
+};
+
+function usesEventScope(role) {
+    return SCOPED_ROLES.includes(role);
+}
+
+function roleLabel(role) {
+    return ROLE_LABELS[role] || ROLE_LABELS.admin;
+}
+
 const tab = ref('admins');
 
 const admins = ref([]);
@@ -151,7 +176,7 @@ function openCreate() {
         dni: '',
         phone: '',
         password: '',
-        role: 'admin',
+        role: isAdministrativo.value ? 'vendedor' : 'admin',
         enable: true,
         event_ids: [],
         mode: 'create',
@@ -171,12 +196,12 @@ function openEdit(user) {
         phone: user.phone || '',
         password: '',
         password_confirmation: '',
-        // Un role null viene de operadores cargados antes de que existiera el
+        // role null viene de operadores cargados antes de que existiera el
         // rol: para la app son administradores, y por eso se muestran como tal.
-        role: user.role === 'cajero' ? 'cajero' : 'admin',
+        role: ['cajero', 'vendedor', 'administrativo'].includes(user.role) ? user.role : 'admin',
         enable: Boolean(user.enable),
-        // Eventos que este cajero puede ver y escanear. El admin no usa esto
-        // (ve todos los eventos igual), pero se precarga igual de la fila.
+        // Eventos asignados del operador. El admin no usa esto (ve todos los
+        // eventos igual), pero se precarga igual de la fila.
         event_ids: (user.events || []).map((event) => event.id),
     };
 }
@@ -187,11 +212,12 @@ function closeEditor() {
 }
 
 /*
-| Las asignaciones solo limitan a los cajeros: al admin se le manda lista
-| vacia para que no queden filas viejas colgando si alguien bajo un rol.
+| Las asignaciones solo limitan a los roles acotados (cajero, vendedor y
+| administrativo): al admin se le manda lista vacia para que no queden filas
+| viejas colgando si alguien bajo un rol.
 */
 function eventIdsForSubmit() {
-    return editor.value.role === 'cajero' ? editor.value.event_ids : [];
+    return usesEventScope(editor.value.role) ? editor.value.event_ids : [];
 }
 
 async function submitEditor() {
@@ -211,10 +237,7 @@ async function submitEditor() {
                 event_ids: eventIdsForSubmit(),
             });
 
-            toast(
-                editor.value.role === 'cajero' ? 'Cajero creado' : 'Administrador creado',
-                'success',
-            );
+            toast(`${roleLabel(editor.value.role)} creado`, 'success');
         } else {
             /*
             | Cambio de password opcional en edicion: si los dos inputs quedaron
@@ -248,10 +271,7 @@ async function submitEditor() {
                 ...passwordFields,
             });
 
-            toast(
-                editor.value.role === 'cajero' ? 'Cajero actualizado' : 'Administrador actualizado',
-                'success',
-            );
+            toast(`${roleLabel(editor.value.role)} actualizado`, 'success');
         }
 
         closeEditor();
@@ -341,12 +361,13 @@ onMounted(() => {
             <div>
                 <h2 class="h5 fw-bold mb-0">Usuarios</h2>
                 <p class="text-muted-2 small mb-0">
-                    {{ meta.admins.total }} administradores · {{ meta.buyers.total }} compradores
+                    {{ meta.admins.total }} {{ isAdministrativo ? 'vendedores' : 'operadores' }}
+                    <template v-if="!isAdministrativo"> · {{ meta.buyers.total }} compradores</template>
                 </p>
             </div>
 
             <button v-if="tab === 'admins'" class="btn btn-et-primary btn-sm" @click="openCreate">
-                <i class="bi bi-person-plus me-1"></i>Nuevo admin
+                <i class="bi bi-person-plus me-1"></i>{{ isAdministrativo ? 'Nuevo vendedor' : 'Nuevo operador' }}
             </button>
         </header>
 
@@ -358,9 +379,10 @@ onMounted(() => {
                         :class="{ 'is-active': tab === 'admins' }"
                         @click="switchTab('admins')"
                     >
-                        Administradores
+                        {{ isAdministrativo ? 'Vendedores' : 'Operadores' }}
                     </button>
                     <button
+                        v-if="!isAdministrativo"
                         class="tabbar__item"
                         :class="{ 'is-active': tab === 'buyers' }"
                         @click="switchTab('buyers')"
@@ -431,10 +453,10 @@ onMounted(() => {
                             <td class="small">{{ row.email }}</td>
                             <td class="small numeric">{{ row.dni || '—' }}</td>
                             <td>
-                                <span class="et-badge" :class="row.role === 'cajero' ? 'et-badge--muted' : 'et-badge--success'">
-                                    {{ row.role === 'cajero' ? 'Cajero' : 'Administrador' }}
+                                <span class="et-badge" :class="row.role === 'admin' || !row.role ? 'et-badge--success' : 'et-badge--muted'">
+                                    {{ roleLabel(row.role) }}
                                 </span>
-                                <div v-if="row.role === 'cajero'" class="small text-faint mt-1">
+                                <div v-if="usesEventScope(row.role)" class="small text-faint mt-1">
                                     {{
                                         row.events && row.events.length
                                             ? `Asignado a ${row.events.length} evento${row.events.length === 1 ? '' : 's'}`
@@ -540,7 +562,7 @@ onMounted(() => {
             <div class="modal-sheet">
                 <header class="modal-sheet__head">
                     <h3 class="h6 fw-bold mb-0">
-                        {{ editor.mode === 'create' ? 'Nuevo administrador' : 'Editar administrador' }}
+                        {{ editor.mode === 'create' ? `Nuevo ${isAdministrativo ? 'vendedor' : 'usuario'}` : `Editar ${isAdministrativo ? 'vendedor' : 'usuario'}` }}
                     </h3>
                     <button class="btn btn-link btn-sm p-0" @click="closeEditor">
                         <i class="bi bi-x-lg"></i>
@@ -577,16 +599,23 @@ onMounted(() => {
 
                     <div class="mb-3">
                         <label class="form-label" for="role">Rol</label>
-                        <select id="role" v-model="editor.role" class="form-select">
+                        <select v-if="isAdministrativo" id="role" class="form-select" disabled>
+                            <option value="vendedor">Vendedor — solo vende en efectivo desde el POS</option>
+                        </select>
+                        <select v-else id="role" v-model="editor.role" class="form-select">
                             <option value="admin">Administrador — acceso total al panel</option>
+                            <option value="administrativo">Administrativo — estadisticas de su evento, alta de vendedores y venta</option>
+                            <option value="vendedor">Vendedor — solo vende en efectivo desde el POS</option>
                             <option value="cajero">Cajero — solo escanear entradas y dar pulseras</option>
                         </select>
                         <div class="form-text">
-                            El cajero ve unicamente Escanear, Escaneos y su contrasena.
+                            {{ isAdministrativo
+                                ? 'Los vendedores solo ven Vender y su contrasena, acotados a los eventos que les asignes.'
+                                : 'Cada rol ve solo las secciones que le corresponden.' }}
                         </div>
                     </div>
 
-                    <div v-if="editor.role === 'cajero'" class="mb-3">
+                    <div v-if="usesEventScope(editor.role)" class="mb-3">
                         <label class="form-label">Eventos asignados</label>
                         <MultiSelectFilter
                             v-model="editor.event_ids"
@@ -596,8 +625,8 @@ onMounted(() => {
                             empty-text="No hay eventos para asignar"
                         />
                         <div class="form-text">
-                            Solo escanea los eventos elegidos. Sin ninguno asignado no ve
-                            ni puede escanear ninguno hasta que se le asigne.
+                            Solo opera sobre los eventos elegidos. Sin ninguno asignado no ve
+                            ni puede vender/escanear ninguno hasta que se le asigne.
                         </div>
                     </div>
 

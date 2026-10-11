@@ -186,7 +186,7 @@ class TicketPortalAuthController extends Controller
             'dni' => $user->dni,
             'phone' => $user->phone,
             'is_admin' => (bool) $user->is_admin,
-            'role' => $user->isCashier() ? User::ROLE_CASHIER : User::ROLE_ADMIN,
+            'role' => $user->roleName(),
             'routes' => $user->allowedPanelRoutes(),
             // La raiz del SPA pregunta la sesion por aca, no por el endpoint del
             // panel, asi que el flag de "cambiar la contrasena" tiene que viajar

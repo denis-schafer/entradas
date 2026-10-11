@@ -21,6 +21,7 @@ import OrdersView from '../admin/OrdersView.vue';
 import TicketsView from '../admin/TicketsView.vue';
 import ScansView from '../admin/ScansView.vue';
 import UsersView from '../admin/UsersView.vue';
+import PosView from '../admin/PosView.vue';
 import AdsView from '../admin/AdsView.vue';
 import SettingsView from '../admin/SettingsView.vue';
 import PaymentMethodsView from '../admin/PaymentMethodsView.vue';
@@ -57,6 +58,7 @@ const VIEWS = {
     scanner: ScannerView,
     scans: ScansView,
     users: UsersView,
+    pos: PosView,
     ads: AdsView,
     settings: SettingsView,
     'payment-methods': PaymentMethodsView,
@@ -76,6 +78,7 @@ const currentView = computed(() => VIEWS[route.value.name] || DashboardView);
 const ALL_NAV = [
     { name: 'scanner', label: 'Escanear', icon: 'bi-upc-scan' },
     { name: 'scans', label: 'Escaneos', icon: 'bi-clock-history' },
+    { name: 'pos', label: 'Vender', icon: 'bi-cash-coin' },
     { name: 'orders', label: 'Ordenes', icon: 'bi-receipt' },
     { name: 'tickets', label: 'Entradas', icon: 'bi-ticket-perforated' },
     { name: 'events', label: 'Eventos', icon: 'bi-calendar-event' },

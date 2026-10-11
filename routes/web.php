@@ -13,6 +13,7 @@ use App\Http\Controllers\TicketsMercadoPagoController;
 use App\Http\Controllers\TicketsMultipagoController;
 use App\Http\Controllers\TicketsOrderController;
 use App\Http\Controllers\TicketsPaymentMethodController;
+use App\Http\Controllers\TicketsPosController;
 use App\Http\Controllers\TicketsScanController;
 use App\Http\Controllers\TicketsStatisticsController;
 use App\Http\Controllers\TicketsTicketController;
@@ -103,8 +104,6 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
         // que cada endpoint nuevo que se cuelgue aca queda cerrado por default.
         Route::middleware('tickets.staff')->group(function () {
             Route::get('dashboard', [TicketsDashboardController::class, 'index'])->name('dashboard');
-            Route::get('statistics', [TicketsStatisticsController::class, 'summary'])->name('statistics');
-            Route::get('statistics/export', [TicketsStatisticsController::class, 'export'])->name('statistics.export');
 
             // Eventos
             Route::post('events', [TicketsEventController::class, 'store'])->name('events.store');
@@ -133,13 +132,11 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             Route::post('tickets/{id}/cancel', [TicketsTicketController::class, 'cancel'])->whereNumber('id')->name('tickets.cancel');
             Route::get('tickets/{id}/qr.svg', [TicketsMercadoPagoController::class, 'qrSvg'])->whereNumber('id')->name('tickets.qr');
 
-            // Usuarios del panel y compradores
-            Route::get('users', [TicketsUserController::class, 'index'])->name('users.index');
-            Route::post('users', [TicketsUserController::class, 'store'])->name('users.store');
+            // Usuarios del panel y compradores. El listado de usuarios y su ABM
+            // viven en el grupo de gestion de mas abajo (tickets.manage), porque
+            // el administrativo tambien da de alta vendedores. El listado de
+            // compradores queda aca: solo lo ve el administrador.
             Route::get('users/buyers', [TicketsUserController::class, 'buyers'])->name('users.buyers');
-            Route::put('users/{id}', [TicketsUserController::class, 'update'])->whereNumber('id')->name('users.update');
-            Route::delete('users/{id}', [TicketsUserController::class, 'destroy'])->whereNumber('id')->name('users.destroy');
-            Route::post('users/{id}/reset-password', [TicketsUserController::class, 'resetPassword'])->whereNumber('id')->name('users.reset');
 
             // Publicidad
             Route::get('ads', [TicketsAdController::class, 'index'])->name('ads.index');
@@ -171,6 +168,33 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             Route::post('payment-methods/{code}/validate', [TicketsPaymentMethodController::class, 'validatePayments'])->name('payment-methods.validate');
             Route::get('payment-methods/{code}/webhook-url', [TicketsPaymentMethodController::class, 'webhookUrl'])->name('payment-methods.webhook-url');
             Route::post('payment-methods/{code}/webhook-key/regenerate', [TicketsPaymentMethodController::class, 'regenerateWebhookKey'])->name('payment-methods.webhook-key');
+        });
+
+        // ------------------------------------------------------------- Gestion
+        // Secciones que comparte el administrativo con el admin: estadisticas
+        // (acotadas a sus eventos) y alta/edicion de vendedores.
+        Route::middleware('tickets.manage')->group(function () {
+            Route::get('statistics', [TicketsStatisticsController::class, 'summary'])->name('statistics');
+            Route::get('statistics/export', [TicketsStatisticsController::class, 'export'])->name('statistics.export');
+
+            Route::get('users', [TicketsUserController::class, 'index'])->name('users.index');
+            Route::post('users', [TicketsUserController::class, 'store'])->name('users.store');
+            Route::put('users/{id}', [TicketsUserController::class, 'update'])->whereNumber('id')->name('users.update');
+            Route::delete('users/{id}', [TicketsUserController::class, 'destroy'])->whereNumber('id')->name('users.destroy');
+            Route::post('users/{id}/reset-password', [TicketsUserController::class, 'resetPassword'])->whereNumber('id')->name('users.reset');
+        });
+
+        // ------------------------------------------------------------- POS
+        // Venta en efectivo en la caja. Admin, administrativo y vendedor.
+        Route::middleware('tickets.pos')->group(function () {
+            Route::get('pos/events', [TicketsPosController::class, 'events'])->name('pos.events');
+            Route::get('pos/events/{eventId}/ticket-types', [TicketsPosController::class, 'ticketTypes'])->whereNumber('eventId')->name('pos.ticket-types');
+            Route::get('pos/buyers', [TicketsPosController::class, 'buyers'])->name('pos.buyers');
+            Route::post('pos/buyers', [TicketsPosController::class, 'storeBuyer'])->name('pos.buyers.store');
+            Route::get('pos/sales', [TicketsPosController::class, 'sales'])->name('pos.sales.index');
+            Route::post('pos/sales', [TicketsPosController::class, 'sell'])->name('pos.sales');
+            Route::get('pos/orders/{id}/receipt', [TicketsPosController::class, 'receipt'])->whereNumber('id')->name('pos.receipt');
+            Route::get('pos/tickets/{id}/qr.svg', [TicketsPosController::class, 'ticketQr'])->whereNumber('id')->name('pos.ticket-qr');
         });
     });
 });

@@ -81,7 +81,7 @@ class TicketsCheckoutController extends Controller
                         'variant' => 'qr',
                         'name' => 'Multipago (QR)',
                         'type' => 'multipago-qr',
-                        'subtitle' => 'Escaneá el QR con la app de Multipago',
+                        'subtitle' => 'Escaneá el QR con cualquier billetera virtual',
                     ];
                 }
 

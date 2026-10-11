@@ -15,6 +15,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'tickets.auth' => \App\Http\Middleware\TicketsAuth::class,
             'tickets.staff' => \App\Http\Middleware\TicketsStaffOnly::class,
+            'tickets.manage' => \App\Http\Middleware\TicketsManage::class,
+            'tickets.pos' => \App\Http\Middleware\TicketsPos::class,
             'tickets.portal' => \App\Http\Middleware\TicketsPortalAuth::class,
         ]);
 

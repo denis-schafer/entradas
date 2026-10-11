@@ -20,6 +20,19 @@ class User extends Authenticatable
 
     public const ROLE_CASHIER = 'cajero';
 
+    /*
+    | Administrativo: mira las estadisticas del evento al que esta asignado, da
+    | de alta a los vendedores y vende desde el POS. No toca la configuracion
+    | global (eventos, medios de pago, publicidad, configuracion).
+    */
+    public const ROLE_ADMINISTRATIVO = 'administrativo';
+
+    /*
+    | Vendedor: solo vende en efectivo desde el POS. Sin escaner y sin panel de
+    | administracion. Se limita a los eventos que tiene asignados.
+    */
+    public const ROLE_SELLER = 'vendedor';
+
     protected $fillable = [
         'name',
         'email',
@@ -78,16 +91,25 @@ class User extends Authenticatable
     }
 
     /**
-     * Administrador: ve el panel entero.
+     * Rol efectivo del operador.
      *
      * role en NULL se interpreta como admin a proposito. Todos los operadores
-     * que ya existian antes de que existiera el rol quedaron con NULL, y tratarlos
-     * como cajeros les habria borrado el acceso de un dia para otro sin que nadie
-     * lo pidiera.
+     * que ya existian antes de que existiera el rol quedaron con NULL, y
+     * tratarlos de otra forma les habria borrado el acceso de un dia para otro
+     * sin que nadie lo pidiera.
+     */
+    public function roleName(): string
+    {
+        return $this->role ?: self::ROLE_ADMIN;
+    }
+
+    /**
+     * Administrador: ve el panel entero. Es el unico que puede configurar el
+     * sistema (eventos, medios de pago, publicidad, compradores).
      */
     public function isStaffAdmin(): bool
     {
-        return $this->is_admin && $this->role !== self::ROLE_CASHIER;
+        return $this->is_admin && $this->roleName() === self::ROLE_ADMIN;
     }
 
     /**
@@ -96,11 +118,51 @@ class User extends Authenticatable
      */
     public function isCashier(): bool
     {
-        return $this->is_admin && $this->role === self::ROLE_CASHIER;
+        return $this->is_admin && $this->roleName() === self::ROLE_CASHIER;
     }
 
     /**
-     * Lo unico que puede hacer un cajero, en terminos de rutas del panel.
+     * Administrativo: estadisticas de su evento, alta de vendedores y venta.
+     */
+    public function isAdministrativo(): bool
+    {
+        return $this->is_admin && $this->roleName() === self::ROLE_ADMINISTRATIVO;
+    }
+
+    /**
+     * Vendedor: solo vende en efectivo desde el POS.
+     */
+    public function isSeller(): bool
+    {
+        return $this->is_admin && $this->roleName() === self::ROLE_SELLER;
+    }
+
+    /**
+     * Puede usar el POS (vender). El administrador tambien, porque ve todo.
+     */
+    public function isPosUser(): bool
+    {
+        return $this->is_admin && in_array($this->roleName(), [
+            self::ROLE_ADMIN,
+            self::ROLE_ADMINISTRATIVO,
+            self::ROLE_SELLER,
+        ], true);
+    }
+
+    /**
+     * Puede gestionar usuarios (al menos vendedores). El cajero y el vendedor
+     * no.
+     */
+    public function canManageUsers(): bool
+    {
+        return $this->is_admin && in_array($this->roleName(), [
+            self::ROLE_ADMIN,
+            self::ROLE_ADMINISTRATIVO,
+        ], true);
+    }
+
+    /**
+     * Lo unico que puede hacer cada rol, en terminos de rutas del panel.
      *
      * Vive aca y no en el middleware para que el menu del frontend pueda usar
      * exactamente la misma lista: si se definieran en dos lugares, el menu
@@ -108,15 +170,24 @@ class User extends Authenticatable
      */
     public function allowedPanelRoutes(): array
     {
-        if ($this->isCashier()) {
-            return [
+        return match ($this->roleName()) {
+            self::ROLE_CASHIER => [
                 'scanner',
                 'scans',
                 'password',
-            ];
-        }
-
-        return ['*'];
+            ],
+            self::ROLE_SELLER => [
+                'pos',
+                'password',
+            ],
+            self::ROLE_ADMINISTRATIVO => [
+                'statistics',
+                'users',
+                'pos',
+                'password',
+            ],
+            default => ['*'],
+        };
     }
 
     public function canAccessPanelRoute(string $route): bool

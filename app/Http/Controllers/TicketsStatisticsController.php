@@ -13,31 +13,37 @@ class TicketsStatisticsController extends Controller
     {
         $eventId = $request->query('event_id') ? (int) $request->query('event_id') : null;
 
+        /*
+        | El administrativo solo ve las estadisticas de los eventos que tiene
+        | asignados. Si ademas filtra por uno puntual, la interseccion deja las
+        | cosas en su lugar: pedir un evento ajeno devuelve vacio, no el evento
+        | entero. Para el admin $allowedIds queda en null, o sea "todos".
+        */
+        $allowedIds = $this->scopeEventIds($request, $eventId);
+
         $events = DB::table('tickets_events');
         $orders = DB::table('tickets_orders as o');
 
-        if ($eventId) {
-            $events->where('id', $eventId);
-            $orders->where('o.event_id', $eventId);
+        if ($allowedIds !== null) {
+            $events->whereIn('id', $allowedIds);
+            $orders->whereIn('o.event_id', $allowedIds);
         }
 
         $tickets = DB::table('tickets_tickets as t')
             ->join('tickets_orders as o', 't.order_id', '=', 'o.id');
 
-        if ($eventId) {
-            $tickets->where('o.event_id', $eventId);
-        }
-
         $scans = DB::table('tickets_scans as s');
 
-        if ($eventId) {
-            $scans->where('s.event_id', $eventId);
+        if ($allowedIds !== null) {
+            $tickets->whereIn('o.event_id', $allowedIds);
+            $scans->whereIn('s.event_id', $allowedIds);
         }
 
         $byEvent = DB::table('tickets_events as e')
             ->leftJoin('tickets_orders as o', function ($join) {
                 $join->on('o.event_id', '=', 'e.id')->where('o.status', 'paid');
             })
+            ->when($allowedIds !== null, fn ($q) => $q->whereIn('e.id', $allowedIds))
             ->groupBy('e.id', 'e.name', 'e.starts_at')
             ->select([
                 'e.id', 'e.name', 'e.starts_at',
@@ -52,6 +58,7 @@ class TicketsStatisticsController extends Controller
         // o cerrar un tipo antes de que se agote.
         $byType = DB::table('tickets_event_ticket_types as tt')
             ->leftJoin('tickets_events as e', 'tt.event_id', '=', 'e.id')
+            ->when($allowedIds !== null, fn ($q) => $q->whereIn('tt.event_id', $allowedIds))
             ->groupBy('tt.id', 'tt.name', 'tt.event_id', 'tt.price', 'tt.stock', 'tt.sold_count', 'e.name')
             ->select([
                 'tt.id', 'tt.name', 'tt.event_id', 'tt.price', 'tt.stock', 'tt.sold_count',
@@ -90,6 +97,9 @@ class TicketsStatisticsController extends Controller
      */
     public function export(Request $request): StreamedResponse
     {
+        $eventId = $request->query('event_id') ? (int) $request->query('event_id') : null;
+        $allowedIds = $this->scopeEventIds($request, $eventId);
+
         $query = DB::table('tickets_orders as o')
             ->leftJoin('tickets_events as e', 'o.event_id', '=', 'e.id')
             ->select([
@@ -101,8 +111,8 @@ class TicketsStatisticsController extends Controller
             ])
             ->orderByDesc('o.id');
 
-        if ($eventId = $request->query('event_id')) {
-            $query->where('o.event_id', (int) $eventId);
+        if ($allowedIds !== null) {
+            $query->whereIn('o.event_id', $allowedIds);
         }
 
         if ($status = $request->query('status')) {
@@ -141,5 +151,31 @@ class TicketsStatisticsController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
+    }
+
+    /**
+     * IDs de evento sobre los que el usuario puede ver estadisticas.
+     *
+     * Devuelve null cuando no hay restriccion (el administrador ve todo), y la
+     * lista ya recortada cuando el usuario esta limitado a sus eventos. Si
+     * pidio un evento puntual que no le pertenece, la interseccion deja [].
+     *
+     * @return array<int,int>|null
+     */
+    private function scopeEventIds(Request $request, ?int $eventId): ?array
+    {
+        $user = $request->user();
+
+        if (! $user || $user->isStaffAdmin()) {
+            return $eventId ? [$eventId] : null;
+        }
+
+        $assigned = $user->assignedEventIds();
+
+        if ($eventId) {
+            return array_values(array_intersect([$eventId], $assigned));
+        }
+
+        return $assigned;
     }
 }

@@ -252,8 +252,8 @@ onBeforeUnmount(stopPolling);
             <div v-else class="payment__qr-card et-surface-raised p-4 text-center">
                 <template v-if="chosen.variant === 'qr'">
                     <p class="small text-muted-2 mb-3">
-                        Escaneá el QR con la app de Multipago o abrí el enlace. La
-                        orden se confirma sola cuando Multipago notifique el pago.
+                        Escaneá el QR con cualquier billetera virtual o abrí el
+                        enlace. La orden se confirma sola cuando se notifique el pago.
                     </p>
 
                     <img

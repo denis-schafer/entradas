@@ -189,7 +189,7 @@ class TicketsAuthController extends Controller
             // El rol decide que pantallas monta el panel. El frontend usa esta
             // misma lista que el middleware, asi que el menu nunca ofrece algo
             // que despues el servidor responde con 403.
-            'role' => $user->isCashier() ? User::ROLE_CASHIER : User::ROLE_ADMIN,
+            'role' => $user->roleName(),
             'routes' => $user->allowedPanelRoutes(),
             // Solo aviso (la contrasena temporal sigue vigente hasta que el
             // usuario la cambie); ya no bloquea el panel.

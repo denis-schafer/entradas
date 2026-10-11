@@ -18,11 +18,12 @@ class TicketsEventController extends Controller
         $query = DB::table('tickets_events')->orderByDesc('id');
 
         /*
-        | Un cajero solo ve los eventos que le estan asignados: con la lista
-        | vacia no ve ninguno y no puede escanear hasta que se le asigne
-        | alguno. El administrador pasa por todos los eventos igual.
+        | Un cajero, un administrativo o un vendedor solo ven los eventos que
+        | tienen asignados: con la lista vacia no ven ninguno y no pueden
+        | escanear ni vender hasta que se les asigne alguno. El administrador
+        | pasa por todos los eventos igual.
         */
-        if ($request->user()?->isCashier()) {
+        if ($request->user() && ! $request->user()->isStaffAdmin()) {
             $query->whereIn('tickets_events.id', $request->user()->assignedEventIds());
         }
 
