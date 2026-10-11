@@ -9,6 +9,7 @@ import ToastHost from './ui/ToastHost.vue';
 import SessionCountdownModal from './ui/SessionCountdownModal.vue';
 import AuthScreen from './ui/AuthScreen.vue';
 import RegisterView from './portal/RegisterView.vue';
+import PublicEntryView from './portal/PublicEntryView.vue';
 import PortalShell from './shell/PortalShell.vue';
 import AdminShell from './shell/AdminShell.vue';
 
@@ -53,11 +54,20 @@ const Root = defineComponent({
             history.replaceState(null, '', window.location.pathname);
         }
 
+        /*
+        | Link de venta que el vendedor manda por WhatsApp: /e/{public_token}.
+        | Se lee del pathname porque la app no tiene router de URL; al abrirlo,
+        | el comprador aterriza en la vista publica de esa venta (o en "Mis
+        | entradas" si ya tenia sesion).
+        */
+        const entryToken = ref(entryTokenFromPath());
+
         // Rutas que existen sin sesion. Los shells registran las suyas al
         // montarse; estas se registran siempre para que go() no las rechace.
         defineRoutes({
             login: {},
             register: {},
+            entrada: {},
         });
 
         async function resolveSession() {
@@ -83,15 +93,30 @@ const Root = defineComponent({
             );
         }
 
-        const isAnonymous = computed(() => user.value === null);
+const isAnonymous = computed(() => user.value === null);
 
-        const anonView = computed(() => {
-            if (route.value.name === 'register') {
-                return 'register';
-            }
+/**
+ * De un path de entrada publica (/e/{uuid}) saca el token, o null si el path
+ * no se parece a uno. El UUID es la credencial que identifica la venta; fuera
+ * de ese patron la ruta no pide esta pantalla.
+ */
+function entryTokenFromPath() {
+    const match = window.location.pathname.match(/^\/e\/([0-9a-fA-F-]{36})$/);
 
-            return 'auth';
-        });
+    return match ? match[1] : null;
+}
+
+const anonView = computed(() => {
+    if (route.value.name === 'register') {
+        return 'register';
+    }
+
+    if (route.value.name === 'entrada') {
+        return 'entrada';
+    }
+
+    return 'auth';
+});
 
         function handleLoggedIn(loggedUser) {
             user.value = loggedUser;
@@ -201,6 +226,25 @@ const Root = defineComponent({
             // navegacion tiene que esperar al siguiente tick.
             await nextTick();
 
+            /*
+            | Link de venta (/e/{token}): prioridad por sobre el home. Con
+            | sesion de comprador, sus entradas ya estan en el portal; sin
+            | sesion se monta la vista publica de esa venta (pide el token y
+            | muestra los QR sin autenticar); una sesion de panel o el flag
+            | "ver como comprador" ignoran el link y siguen a lo suyo.
+            */
+            if (entryToken.value) {
+                if (user.value && !user.value.is_admin) {
+                    go('my-tickets');
+                } else if (user.value?.is_admin || forcePortal.value) {
+                    go(user.value?.is_admin ? 'dashboard' : 'events');
+                } else {
+                    go('entrada', { token: entryToken.value });
+                }
+
+                return;
+            }
+
             // El comprador autenticado puede estar volviendo de MercadoPago: la
             // URL llega pelada y la orden se ubica desde sessionStorage.
             if (user.value && !user.value.is_admin) {
@@ -252,11 +296,17 @@ const Root = defineComponent({
                         onLoggedIn: this.handleLoggedIn,
                         onNavigate: this.handleNavigate,
                     })
-                    : h(AuthScreen, {
-                        key: 'auth',
-                        onLoggedIn: this.handleLoggedIn,
-                        onNavigate: this.handleNavigate,
-                    }),
+                    : this.anonView === 'entrada'
+                        ? h(PublicEntryView, {
+                            key: 'entrada',
+                            token: this.route.params.token || '',
+                            onNavigate: this.handleNavigate,
+                        })
+                        : h(AuthScreen, {
+                            key: 'auth',
+                            onLoggedIn: this.handleLoggedIn,
+                            onNavigate: this.handleNavigate,
+                        }),
                 h(ToastHost),
             ]);
         }

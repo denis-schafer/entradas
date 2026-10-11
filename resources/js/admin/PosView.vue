@@ -37,6 +37,39 @@ const selling = ref(false);
 const saleError = ref('');
 const receipt = ref(null);
 
+const entryLink = computed(() => {
+    if (!receipt.value?.order?.public_token) {
+        return '';
+    }
+
+    return `${window.location.origin}/e/${receipt.value.order.public_token}`;
+});
+
+function copyEntryLink() {
+    const link = entryLink.value;
+
+    if (!link) {
+        return;
+    }
+
+    navigator.clipboard
+        .writeText(link)
+        .then(() => toast('Link copiado. Mandalo al comprador.', 'success'))
+        .catch(() => toast('No se pudo copiar el link.', 'danger'));
+}
+
+function sendByWhatsApp() {
+    const link = entryLink.value;
+
+    if (!link) {
+        return;
+    }
+
+    const text = `Tus entradas para ${receipt.value.order.event_name || 'el evento'} estan aca: ${link}`;
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
 function money(value) {
     return new Intl.NumberFormat('es-AR', {
         style: 'currency',
@@ -513,6 +546,24 @@ onMounted(loadEvents);
                         </li>
                     </ul>
 
+                    <div class="pos__share">
+                        <div class="small text-faint mb-1">Link para el comprador (abre sus entradas con el QR)</div>
+                        <div class="d-flex gap-2">
+                            <input
+                                :value="entryLink"
+                                class="form-control form-control-sm numeric"
+                                readonly
+                                @focus="$event.target.select()"
+                            >
+                            <button class="btn btn-et-ghost btn-sm" @click="copyEntryLink">
+                                <i class="bi bi-clipboard me-1"></i>Copiar
+                            </button>
+                            <button class="btn btn-et-primary btn-sm" @click="sendByWhatsApp">
+                                <i class="bi bi-whatsapp me-1"></i>WhatsApp
+                            </button>
+                        </div>
+                    </div>
+
                     <footer class="modal-sheet__foot">
                         <button class="btn btn-et-ghost" @click="newSale">Nueva venta</button>
                         <button class="btn btn-et-primary" @click="printReceipt">
@@ -672,5 +723,14 @@ onMounted(loadEvents);
 .pos__receipt-tickets img {
     width: 110px;
     height: 110px;
+}
+
+.pos__share {
+    margin-bottom: 1rem;
+}
+
+.pos__share input {
+    min-width: 0;
+    flex: 1;
 }
 </style>

@@ -1344,6 +1344,90 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
     }
 
     /**
+     * El link que le manda el vendedor al comprador (/e/{token}) abre las
+     * entradas de ESA venta sin que haga falta sesion: el token del path es
+     * la credencial, y la vista muestra los boletos con su QR.
+     */
+    public function test_el_link_publico_abre_las_entradas_sin_sesion(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $buyer = $this->buyer();
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 2]],
+        ]);
+        $sale->assertStatus(201);
+
+        $token = $sale->json('order.public_token');
+        $ticketId = $sale->json('tickets.0.id');
+        $this->assertNotEmpty($token);
+
+        // Sin ninguna sesion: ni vendedor, ni comprador, ni admin.
+        auth()->logout();
+
+        // La vista publica devuelve la venta con sus 2 entradas.
+        $view = $this->getJson("/tickets-portal/api/public/entry/{$token}");
+        $view->assertOk();
+        $view->assertJsonCount(2, 'tickets');
+        $this->assertSame($sale->json('order.event_name'), $view->json('order.event_name'));
+
+        // Datos del pago minimos: el comprador agrega el resto desde el portal.
+        $this->assertArrayNotHasKey('buyer_user_id', $view->json('order'));
+        $this->assertArrayNotHasKey('buyer_email', $view->json('order'));
+
+        // El QR se sirve en SVG, que es lo que ve el comprador y escanea la puerta.
+        $qr = $this->get("/tickets-portal/api/public/entry/{$token}/{$ticketId}/qr.svg");
+        $qr->assertOk();
+        $this->assertStringContainsString('image/svg+xml', $qr->headers->get('Content-Type'));
+
+        // Y el archivo SPA se sirve sobre el path del link (la pagina que
+        // monta la vista publica).
+        $this->get("/e/{$token}")->assertOk()->assertSee('id="app"', false);
+    }
+
+    /**
+     * El link solo abre la venta que le corresponde: un token desconocido no
+     * revela nada, y una entrada anulada no se puede mostrar ni imprimir.
+     */
+    public function test_el_link_publico_rechaza_tokens_desconocidos_y_entradas_anuladas(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $buyer = $this->buyer();
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+        ]);
+        $sale->assertStatus(201);
+
+        $token = $sale->json('order.public_token');
+        $ticketId = $sale->json('tickets.0.id');
+
+        auth()->logout();
+
+        // Token que no existe: 404, sin pistas de que haya algo detras.
+        $this->getJson('/tickets-portal/api/public/entry/00000000-0000-0000-0000-000000000000')->assertStatus(404);
+
+        // Entrada anulada: ni la vista la muestra ni el QR existe. Se pisa el
+        // estado directo porque el endpoint de anulacion exige orden no pagada.
+        DB::table('tickets_tickets')->where('id', $ticketId)->update([
+            'status' => 'cancelled',
+            'updated_at' => now(),
+        ]);
+        auth()->logout();
+
+        $this->getJson("/tickets-portal/api/public/entry/{$token}")->assertOk()->assertJsonCount(0, 'tickets');
+        $this->get("/tickets-portal/api/public/entry/{$token}/{$ticketId}/qr.svg")->assertStatus(404);
+    }
+
+    /**
      * El websocket acelera, nunca decide. Con Reverb apagado no se puede
      * publicar un evento ni validar una entrada en la puerta: el broadcast
      * tira una excepcion de conexion y el 500 venia del servidor de

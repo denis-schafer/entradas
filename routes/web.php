@@ -3,6 +3,7 @@
 use App\Http\Controllers\Portal\TicketPortalAuthController;
 use App\Http\Controllers\Portal\TicketPortalEventController;
 use App\Http\Controllers\Portal\TicketPortalOrderController;
+use App\Http\Controllers\Portal\PortalPublicEntryController;
 use App\Http\Controllers\TicketsAdController;
 use App\Http\Controllers\TicketsAuthController;
 use App\Http\Controllers\TicketsCheckoutController;
@@ -234,6 +235,24 @@ Route::prefix('tickets-portal/api')->name('tickets-portal.api.')->group(function
         Route::get('orders/{orderId}/multipago-qr.svg', [TicketsCheckoutController::class, 'multipagoQrSvg'])->whereNumber('orderId')->name('orders.multipago-qr');
     });
 });
+
+/*
+| Venta publica: el link que el vendedor le manda al comprador por WhatsApp.
+| La credencial del path es el public_token de la orden, un UUID aleatorio, y
+| la vista solo muestra esa venta. No piden sesion ni CSRF (son GET).
+*/
+Route::prefix('tickets-portal/api/public/entry')->name('tickets-portal.api.public-entry.')->group(function () {
+    Route::get('{publicToken}', [PortalPublicEntryController::class, 'show'])->where('publicToken', '[0-9a-fA-F\-]{36}')->name('show');
+    Route::get('{publicToken}/{ticketId}/qr.svg', [PortalPublicEntryController::class, 'ticketQr'])->whereNumber('ticketId')->where('publicToken', '[0-9a-fA-F\-]{36}')->name('ticket-qr');
+});
+
+/*
+| El archivo SPA se sirve tambien sobre /e/{token}, que es el path del link.
+| El frontend lee el pathname, saca el token y monta la vista publica de la
+| venta. Los assets y el cliente HTTP usan rutas absolutas, asi que servir la
+| app sobre este path no rompe nada.
+*/
+Route::get('/e/{publicToken}', fn () => view('app'))->where('publicToken', '[0-9a-fA-F\-]{36}');
 
 /*
 | Catch-all defensivo. Cualquier ruta desconocida (un bookmark viejo a
