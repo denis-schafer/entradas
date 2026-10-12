@@ -7,8 +7,9 @@
  *   2. Config por evento: se elige el evento en un <select> y se muestran sus
  *      ajustes particulares (habilitado, token OAuth del evento, etc.).
  *
- * Multipago: una sola cuenta y UN solo webhook para todos los eventos. La URL
- * se muestra en la config global (con boton para rotar la key).
+ * Multipago: la cuenta puede ser global o propia de un evento (bersacode,
+ * usuario y contraseña). En blanco, el evento usa la cuenta global. El webhook
+ * SIEMPRE es único/global (una sola URL y key para toda la instalación).
  *
  * Las credenciales viajan enmascaradas: el backend devuelve la mascara donde
  * hay un secreto guardado; al guardar, ese valor se interpreta como "no tocar".
@@ -37,15 +38,27 @@ const FIELDS = {
         ],
         eventTitle: 'Configuración por evento',
         eventHint: 'Elegí un evento para cargar su token OAuth, probarlo, o dejarlo en la cuenta de la plataforma.',
+        eventFields: [
+            { key: 'access_token', label: 'Access token OAuth del evento (opcional)', secret: true, placeholder: 'APP_USR-... o TEST-... (vacío = cuenta de la plataforma)' },
+        ],
     },
     multipago: {
         global: [
             { key: 'bersacode', label: 'Bersa code (comercio)', secret: false },
             { key: 'username', label: 'Usuario API', secret: false },
             { key: 'password', label: 'Contraseña API', secret: true },
+            { key: 'header', label: 'Encabezado del QR (lo entrega Multipago)', secret: true },
+            { key: 'seeder', label: 'Semilla del QR (la entrega Multipago)', secret: true },
         ],
-        eventTitle: 'Habilitación por evento',
-        eventHint: 'Multipago usa una única cuenta y un único webhook. Por evento elegís qué modalidades ofrecer (QR y/o botón de pago).',
+        eventTitle: 'Cuenta y modalidades por evento',
+        eventHint: 'Si el cliente tiene su propia cuenta de Multipago, cargá su bersacode, usuario y contraseña, y el encabezado/semilla de su QR. En blanco, el evento usa los globales. El webhook es único para toda la instalación.',
+        eventFields: [
+            { key: 'bersacode', label: 'Bersa code (comercio) del evento', secret: true, placeholder: 'Vacío = bersacode global' },
+            { key: 'username', label: 'Usuario API del evento', secret: true, placeholder: 'Vacío = usuario global' },
+            { key: 'password', label: 'Contraseña API del evento', secret: true, placeholder: 'Vacío = contraseña global' },
+            { key: 'header', label: 'Encabezado del QR del evento', secret: true, placeholder: 'Vacío = encabezado global' },
+            { key: 'seeder', label: 'Semilla del QR del evento', secret: true, placeholder: 'Vacío = semilla global' },
+        ],
     },
 };
 
@@ -53,17 +66,18 @@ const FIELDS = {
 const enabledDraft = ref({});      // code -> bool
 const globalDrafts = ref({});      // code -> { key: value }
 const clearedGlobal = ref({});     // code -> [key]
-const eventDrafts = ref({});       // code -> { eventId: token }
+const eventDrafts = ref({});       // code -> { eventId: { key: value } }
 const eventEnabled = ref({});      // code -> { eventId: bool }
 const eventQr = ref({});           // code -> { eventId: bool }  (multipago)
 const eventButton = ref({});       // code -> { eventId: bool }  (multipago)
-const eventClearToken = ref({});   // code -> { eventId: bool }
+const eventClearedKeys = ref({});  // code -> { eventId: [key] }
 const saving = ref({});
 const savingEvent = ref({});
 const testing = ref({});
 const validating = ref(false);
 const validateFrom = ref('');
 const validateTo = ref('');
+const validateEvent = ref(null);   // null = cuenta global
 const copied = ref('');
 
 function isMask(value) {
@@ -108,10 +122,18 @@ async function load() {
             eventEnabled.value[m.code] = {};
             eventQr.value[m.code] = {};
             eventButton.value[m.code] = {};
-            eventClearToken.value[m.code] = {};
+            eventClearedKeys.value[m.code] = {};
 
             (m.events || []).forEach((ev) => {
-                eventDrafts.value[m.code][ev.event_id] = ev.config?.access_token || '';
+                const drafts = {};
+
+                (FIELDS[m.code]?.eventFields || []).forEach((f) => {
+                    const value = ev.config?.[f.key];
+
+                    drafts[f.key] = f.secret && isMask(value) ? '' : (value ?? '');
+                });
+
+                eventDrafts.value[m.code][ev.event_id] = drafts;
                 eventEnabled.value[m.code][ev.event_id] = !!ev.enabled;
                 eventQr.value[m.code][ev.event_id] = ev.config?.qr_enabled === undefined
                     ? true
@@ -153,10 +175,14 @@ function hasGlobalSecret(method, key) {
     return isMask(method.config?.[key]);
 }
 
-function eventHasToken(code, eventId) {
-    const ev = eventsFor(code).find((e) => e.event_id === eventId);
+function eventFieldsFor(code) {
+    return FIELDS[code]?.eventFields || [];
+}
 
-    return isMask(ev?.config?.access_token);
+function eventHasSecret(code, eventId, key) {
+    const ev = eventsFor(code).find((e) => String(e.event_id) === String(eventId));
+
+    return isMask(ev?.config?.[key]);
 }
 
 async function saveGlobal(code) {
@@ -196,16 +222,20 @@ async function saveEvent(code) {
     }
 
     const key = `${code}:${eventId}`;
-    const clearToken = eventClearToken.value[code]?.[eventId];
 
-    // MercadoPago guarda el token OAuth del evento; Multipago, en cambio, elige
-    // por evento que modalidades se ofrecen.
-    const config = code === 'multipago'
-        ? {
-            qr_enabled: !!eventQr.value[code]?.[eventId],
-            button_enabled: !!eventButton.value[code]?.[eventId],
-        }
-        : { access_token: eventDrafts.value[code][eventId] || '' };
+    // Credenciales por evento (MP: token OAuth; Multipago: cuenta propia). El
+    // backend ignora los vacios y la mascara, que significan "usar el global".
+    const config = {};
+
+    eventFieldsFor(code).forEach((f) => {
+        config[f.key] = eventDrafts.value[code]?.[eventId]?.[f.key] ?? '';
+    });
+
+    // Multipago elige ademas, por evento, que modalidades se ofrecen.
+    if (code === 'multipago') {
+        config.qr_enabled = !!eventQr.value[code]?.[eventId];
+        config.button_enabled = !!eventButton.value[code]?.[eventId];
+    }
 
     savingEvent.value[key] = true;
 
@@ -213,11 +243,11 @@ async function saveEvent(code) {
         await api.put(`tickets-admin/payment-methods/${code}/events/${eventId}`, {
             enabled: eventEnabled.value[code][eventId],
             config,
-            cleared_keys: clearToken ? ['access_token'] : [],
+            cleared_keys: eventClearedKeys.value[code]?.[eventId] || [],
         });
 
         toast('Configuración del evento guardada', 'success');
-        eventClearToken.value[code][eventId] = false;
+        eventClearedKeys.value[code][eventId] = [];
         await load();
     } catch (err) {
         toast(toError(err).message, 'danger');
@@ -226,9 +256,12 @@ async function saveEvent(code) {
     }
 }
 
-function clearEventSecret(code, eventId) {
-    eventDrafts.value[code][eventId] = '';
-    eventClearToken.value[code][eventId] = true;
+function clearEventSecret(code, eventId, key) {
+    eventDrafts.value[code][eventId][key] = '';
+    eventClearedKeys.value[code][eventId] = [
+        ...(eventClearedKeys.value[code][eventId] || []),
+        key,
+    ];
 }
 
 async function testMethod(code, eventId = null, token = null) {
@@ -257,10 +290,10 @@ async function testMethod(code, eventId = null, token = null) {
     }
 }
 
-/* Token tipeado (no guardado) para el evento seleccionado, o null. */
+/* Token OAuth tipeado (no guardado) para el evento seleccionado de MP, o null. */
 function eventTestToken(code) {
     const id = selectedEvent.value[code];
-    const draft = eventDrafts.value[code]?.[id] || '';
+    const draft = eventDrafts.value[code]?.[id]?.access_token || '';
 
     return draft && !isMask(draft) ? draft : null;
 }
@@ -272,6 +305,7 @@ async function validatePayments() {
         const { data } = await api.post('tickets-admin/payment-methods/multipago/validate', {
             desde: validateFrom.value || null,
             hasta: validateTo.value || null,
+            event_id: validateEvent.value || null,
         });
 
         const s = data.summary;
@@ -492,8 +526,23 @@ onMounted(load);
                         <h3 class="h6 fw-bold mb-1">Validar pagos</h3>
                         <p class="small text-muted-2 mb-2">
                             Consulta los cobros del período y acredita los pendientes (mismo camino que el webhook).
+                            Elegí la cuenta global o la de un evento con cuenta propia.
                         </p>
                         <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <select
+                                class="form-select form-select-sm"
+                                style="width: auto"
+                                v-model="validateEvent"
+                            >
+                                <option :value="null">Cuenta global</option>
+                                <option
+                                    v-for="event in eventsFor('multipago')"
+                                    :key="event.event_id"
+                                    :value="event.event_id"
+                                >
+                                    {{ event.event_name }}
+                                </option>
+                            </select>
                             <button
                                 type="button"
                                 class="btn btn-et-primary btn-sm"
@@ -561,45 +610,47 @@ onMounted(load);
                                 </label>
                             </div>
 
-                            <template v-if="method.code === 'mercadopago'">
-                                <label class="form-label small mb-1">Access token del evento</label>
+                            <!-- Credenciales por evento (MP: token OAuth; Multipago: cuenta propia) -->
+                            <template v-for="field in eventFieldsFor(method.code)" :key="field.key">
+                                <label class="form-label small mb-1 mt-2">{{ field.label }}</label>
                                 <div class="input-group input-group-sm">
                                     <input
-                                        v-model="eventDrafts[method.code][selectedEvent[method.code]]"
+                                        v-model="eventDrafts[method.code][selectedEvent[method.code]][field.key]"
                                         type="text"
                                         class="form-control form-control-sm"
                                         autocomplete="off"
                                         spellcheck="false"
-                                        :placeholder="eventHasToken(method.code, selectedEvent[method.code])
-                                            ? `${maskText()} (token guardado)`
-                                            : 'APP_USR-... o TEST-... (opcional)'"
+                                        :placeholder="eventHasSecret(method.code, selectedEvent[method.code], field.key)
+                                            ? `${maskText()} (guardado)`
+                                            : field.placeholder"
                                     >
                                     <button
-                                        v-if="eventHasToken(method.code, selectedEvent[method.code])"
+                                        v-if="eventHasSecret(method.code, selectedEvent[method.code], field.key)"
                                         type="button"
                                         class="btn btn-outline-danger btn-sm"
-                                        title="Quitar token del evento"
-                                        @click="clearEventSecret(method.code, selectedEvent[method.code])"
+                                        title="Quitar credencial del evento (vuelve a usar la global)"
+                                        @click="clearEventSecret(method.code, selectedEvent[method.code], field.key)"
                                     >
                                         <i class="bi bi-trash"></i>
                                     </button>
                                 </div>
-                                <div class="form-text small">
-                                    Si lo dejás vacío, el evento usa el access token de la plataforma.
-                                    <button
-                                        type="button"
-                                        class="btn btn-link btn-sm p-0 ms-1"
-                                        @click="connectMpEvent(selectedEvent[method.code])"
-                                    >
-                                        Conectar vía OAuth
-                                    </button>
-                                </div>
                             </template>
 
-                            <template v-else>
-                                <p class="small text-muted-2 mb-2">
-                                    Multipago no usa credenciales por evento: elegí qué modalidades ofrecer en este evento.
-                                </p>
+                            <div v-if="method.code === 'mercadopago'" class="form-text small">
+                                Si lo dejás vacío, el evento usa el access token de la plataforma.
+                                <button
+                                    type="button"
+                                    class="btn btn-link btn-sm p-0 ms-1"
+                                    @click="connectMpEvent(selectedEvent[method.code])"
+                                >
+                                    Conectar vía OAuth
+                                </button>
+                            </div>
+
+                            <!-- Multipago: modalidades por evento -->
+                            <template v-if="method.code === 'multipago'">
+                                <hr class="my-3">
+                                <p class="small text-muted-2 mb-2">Modalidades ofrecidas en este evento:</p>
                                 <label class="form-check form-switch mb-2">
                                     <input
                                         class="form-check-input"
@@ -616,6 +667,9 @@ onMounted(load);
                                     >
                                     <span class="ms-1 small">Ofrecer botón de pago (código de barras)</span>
                                 </label>
+                                <p class="form-text small mt-2 mb-0">
+                                    El webhook de Multipago es único para toda la instalación y no cambia por evento.
+                                </p>
                             </template>
 
                             <div class="d-flex gap-2 mt-3">
@@ -632,7 +686,6 @@ onMounted(load);
                                     Guardar evento
                                 </button>
                                 <button
-                                    v-if="method.code === 'mercadopago'"
                                     type="button"
                                     class="btn btn-et-ghost btn-sm"
                                     :disabled="testing[`${method.code}:${selectedEvent[method.code]}`]"

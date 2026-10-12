@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\User;
+use App\Services\Payments\PaymentGatewayRegistry;
 use App\Support\QrPayload;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -1597,9 +1598,8 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
     }
 
     /**
-     * Con Multipago, el vendedor elige como cobrar (QR o boton de pago) y el
-     * POS devuelve el codigo PUM deterministico. El QR se sirve como SVG para
-     * mostrarlo en la caja, y reenviar el link recalcula el mismo codigo.
+     * Con Multipago, el vendedor elige como cobrar. La modalidad "boton de
+     * pago" devuelve el codigo PUM de 28 digitos (deterministico) y su link.
      */
     public function test_el_pos_cobra_con_multipago_y_genera_el_codigo_pum(): void
     {
@@ -1626,7 +1626,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
             'buyer_id' => $buyer->id,
             'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
             'payment_method' => 'multipago',
-            'payment_method_variant' => 'qr',
+            'payment_method_variant' => 'button',
         ]);
         $sale->assertStatus(201);
 
@@ -1634,10 +1634,14 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $order = DB::table('tickets_orders')->where('id', $orderId)->first();
         $this->assertSame('pending', $order->status);
         $this->assertSame('multipago', $order->payment_method);
-        $this->assertNotEmpty($order->payment_reference);
+        $this->assertSame('button', $order->payment_variant);
+
+        // El PUM: comercio (4) + cliente (6) + vencimiento (6) + importe (11) + DV.
+        $this->assertStringStartsWith('1234', (string) $order->payment_reference);
+        $this->assertSame(28, strlen((string) $order->payment_reference));
 
         $this->assertSame('multipago', $sale->json('payment.method'));
-        $this->assertSame('qr', $sale->json('payment.variant'));
+        $this->assertSame('button', $sale->json('payment.variant'));
         $this->assertStringContainsString(
             'codigo_barra='.(string) $sale->json('payment.code'),
             (string) $sale->json('payment.link')
@@ -1652,6 +1656,281 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $link = $this->getJson("/tickets-admin/pos/orders/{$orderId}/payment-link");
         $link->assertOk();
         $this->assertSame($sale->json('payment.code'), $link->json('payment.code'));
+        $this->assertSame('button', $link->json('payment.variant'));
+    }
+
+    /**
+     * La modalidad QR arma el QR nativo de Multipago (trama con identificador,
+     * importe, vencimiento e identificador del pago) y no genera link de pago.
+     */
+    public function test_el_pos_cobra_con_multipago_qr_nativo(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $multipagoId = $this->enableMultipago();
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $this->allowPaymentMethod($seller, $multipagoId);
+        $buyer = $this->buyer();
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'multipago',
+            'payment_method_variant' => 'qr',
+        ]);
+        $sale->assertStatus(201);
+
+        $orderId = $sale->json('order.id');
+        $order = DB::table('tickets_orders')->where('id', $orderId)->first();
+
+        $this->assertSame('multipago', $order->payment_method);
+        $this->assertSame('qr', $order->payment_variant);
+
+        // La referencia es el identificador del cliente ante Multipago
+        // (comercio + cliente), igual que en el boton, no el PUM.
+        $gateway = PaymentGatewayRegistry::for('multipago');
+        $identificador = $gateway->customerIdentifier((int) $orderId, (int) $order->event_id);
+        $this->assertSame($identificador, (string) $order->payment_reference);
+        $this->assertSame(10, strlen($identificador));
+        $this->assertStringStartsWith('1234', $identificador);
+
+        $this->assertSame('qr', $sale->json('payment.variant'));
+        $this->assertNull($sale->json('payment.link'));
+        $this->assertSame($identificador, $sale->json('payment.code'));
+
+        // La trama del QR lleva los cuatro datos pedidos y cierra con CRC16.
+        $due = now()->addHours(24)->toDateString();
+        $content = $gateway->qrContent((int) $orderId, $due, (float) $order->total, (int) $order->event_id);
+
+        $this->assertStringContainsString('00'.str_pad(strlen($identificador), 2, '0', STR_PAD_LEFT).$identificador, $content);
+        $this->assertStringContainsString('01', $content);
+        $this->assertStringContainsString(number_format((float) $order->total, 2, '.', ''), $content);
+        $this->assertStringContainsString('03', $content);
+        $this->assertStringContainsString('04'.str_pad(strlen((string) $orderId), 2, '0', STR_PAD_LEFT).$orderId, $content);
+        $this->assertStringEndsWith(
+            $gateway->crc16(substr($content, 0, -4)),
+            $content
+        );
+
+        $qr = $this->get("/tickets-admin/pos/orders/{$orderId}/multipago-qr.svg");
+        $qr->assertOk();
+        $this->assertStringContainsString('image/svg+xml', $qr->headers->get('Content-Type'));
+
+        // Reenviar mantiene la variante y el identificador.
+        $link = $this->getJson("/tickets-admin/pos/orders/{$orderId}/payment-link");
+        $link->assertOk();
+        $this->assertSame('qr', $link->json('payment.variant'));
+        $this->assertSame($identificador, $link->json('payment.code'));
+    }
+
+    /**
+     * El webhook de Multipago acredita la orden. Asocia por el identificador del
+     * pago (id_pago) que viaja en el QR; si no viene, lo resuelve por customer_id.
+     */
+    public function test_el_webhook_de_multipago_acredita_la_orden(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $multipagoId = $this->enableMultipago();
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $this->allowPaymentMethod($seller, $multipagoId);
+        $buyer = $this->buyer();
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'multipago',
+            'payment_method_variant' => 'qr',
+        ]);
+        $sale->assertStatus(201);
+        $orderId = (int) $sale->json('order.id');
+        $order1 = DB::table('tickets_orders')->where('id', $orderId)->first();
+
+        // Asociacion directa por id_pago.
+        $this->postJson('/tickets/multipago/webhook/whk-prueba', [
+            'customer_id' => '00000000000',
+            'amount' => (float) $order1->total,
+            'identifier' => 'MP-COBRO-1',
+            'fecha_pago' => now()->toDateString(),
+            'id_pago' => $orderId,
+        ])->assertOk()->assertSee('insertado');
+
+        $this->assertSame('paid', DB::table('tickets_orders')->where('id', $orderId)->value('status'));
+
+        // Un segundo evento de una orden nueva, resuelto por customer_id.
+        $sale2 = $this->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'multipago',
+            'payment_method_variant' => 'qr',
+        ]);
+        $orderId2 = (int) $sale2->json('order.id');
+
+        $gateway = PaymentGatewayRegistry::for('multipago');
+        $order2 = DB::table('tickets_orders')->where('id', $orderId2)->first();
+
+        $this->postJson('/tickets/multipago/webhook/whk-prueba', [
+            'customer_id' => $gateway->customerIdentifier($orderId2, (int) $order2->event_id),
+            'amount' => (float) $order2->total,
+            'identifier' => 'MP-COBRO-2',
+            'fecha_pago' => now()->toDateString(),
+        ])->assertOk()->assertSee('insertado');
+
+        $this->assertSame('paid', DB::table('tickets_orders')->where('id', $orderId2)->value('status'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Multipago con cuenta propia por evento
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Si el evento tiene su propia cuenta de Multipago, el codigo PUM sale con
+     * SU bersacode (no con el global). El webhook sigue siendo uno solo.
+     */
+    public function test_multipago_usa_la_cuenta_propia_del_evento_en_el_pum(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $multipagoId = $this->enableMultipago();
+
+        $this->overrideMultipagoEvent($multipagoId, $eventId, [
+            'bersacode' => '9999',
+            'username' => 'cuenta-evento',
+            'password' => 'clave-evento',
+        ]);
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $this->allowPaymentMethod($seller, $multipagoId);
+        $buyer = $this->buyer();
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'multipago',
+            'payment_method_variant' => 'qr',
+        ]);
+        $sale->assertStatus(201);
+
+        $order = DB::table('tickets_orders')->where('id', $sale->json('order.id'))->first();
+
+        // El PUM arranca con el comercio (4 digitos): el del evento, no el global.
+        $this->assertStringStartsWith('9999', (string) $order->payment_reference);
+
+        // El panel devuelve la cuenta del evento enmascarada (nunca en claro).
+        $panel = $this->actingAs($admin)->getJson('/tickets-admin/payment-methods');
+        $panel->assertOk();
+
+        $multipago = collect($panel->json('methods'))->firstWhere('code', 'multipago');
+        $eventRow = collect($multipago['events'])->firstWhere('event_id', $eventId);
+        $this->assertSame($this->maskText(), $eventRow['config']['bersacode']);
+        $this->assertSame($this->maskText(), $eventRow['config']['password']);
+    }
+
+    /**
+     * La cuenta tambien puede vivir SOLO en el evento: con el medio habilitado a
+     * nivel global pero sin credenciales propias, un evento con cuenta propia
+     * ofrece Multipago igual.
+     */
+    public function test_multipago_se_ofrece_por_evento_aunque_la_cuenta_sea_solo_del_evento(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+        $multipagoId = (int) DB::table('tickets_payment_methods')->where('code', 'multipago')->value('id');
+
+        // Global habilitado pero SIN credenciales: por si solo no alcanza.
+        DB::table('tickets_payment_methods')->where('id', $multipagoId)->update([
+            'enabled' => 1,
+            'config' => json_encode(['bersacode' => '', 'username' => '', 'password' => '']),
+            'updated_at' => now(),
+        ]);
+
+        // El evento trae su propia cuenta: el medio se ofrece.
+        $this->overrideMultipagoEvent($multipagoId, $eventId, [
+            'bersacode' => '7777',
+            'username' => 'usuario-evento',
+            'password' => 'clave-evento',
+        ]);
+
+        $available = $this->actingAs($admin)
+            ->getJson("/tickets-admin/payment-methods/available?event_ids={$eventId}");
+
+        $available->assertOk();
+        $this->assertSame(['multipago'], array_column($available->json('methods'), 'code'));
+    }
+
+    /**
+     * "Probar conexion" de Multipago usa la cuenta del evento elegido (bersacode
+     * en la URL + Basic Auth), y cae a la global cuando no se indica evento.
+     */
+    public function test_probar_multipago_usa_las_credenciales_del_evento(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+        $multipagoId = $this->enableMultipago();
+
+        $this->overrideMultipagoEvent($multipagoId, $eventId, [
+            'bersacode' => '9999',
+            'username' => 'cuenta-evento',
+            'password' => 'clave-evento',
+        ]);
+
+        Http::fake([
+            'scol2.multipago.com.ar/*' => Http::response(['status' => 'SUCCESS', 'cobros' => []]),
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson('/tickets-admin/payment-methods/multipago/test', ['event_id' => $eventId])
+            ->assertOk();
+
+        $expectedAuth = 'Basic '.base64_encode('cuenta-evento:clave-evento');
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/consultar_deuda/9999/')
+            && $request->hasHeader('Authorization', [$expectedAuth]));
+
+        // Sin evento: la cuenta global.
+        Http::fake([
+            'scol2.multipago.com.ar/*' => Http::response(['status' => 'SUCCESS', 'cobros' => []]),
+        ]);
+
+        $this->postJson('/tickets-admin/payment-methods/multipago/test')->assertOk();
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/consultar_deuda/1234/'));
+    }
+
+    /**
+     * "Validar pagos" con un evento seleccionado consulta ESA cuenta.
+     */
+    public function test_validar_pagos_usa_la_cuenta_del_evento_seleccionado(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+        $multipagoId = $this->enableMultipago();
+
+        $this->overrideMultipagoEvent($multipagoId, $eventId, [
+            'bersacode' => '9999',
+            'username' => 'usuario-evento',
+            'password' => 'clave-evento',
+        ]);
+
+        Http::fake([
+            'scol2.multipago.com.ar/*' => Http::response(['status' => 'SUCCESS', 'cobros' => []]),
+        ]);
+
+        $this->actingAs($admin)
+            ->postJson('/tickets-admin/payment-methods/multipago/validate', ['event_id' => $eventId])
+            ->assertOk()
+            ->assertJsonPath('summary.total', 0);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/consultar_deuda/9999/'));
+
+        // Un evento inexistente se rechaza.
+        $this->postJson('/tickets-admin/payment-methods/multipago/validate', ['event_id' => 999999])
+            ->assertStatus(404);
     }
 
     /*
@@ -1757,8 +2036,9 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
     }
 
     /**
-     * Habilita Multipago a nivel global con credenciales minimas, que es lo que
-     * lo vuelve disponible para todos los eventos (el QR es el mismo PUM).
+     * Habilita Multipago a nivel global con credenciales minimas (cuenta, header
+     * y semilla del QR), que es lo que lo vuelve disponible para todos los
+     * eventos con sus dos modalidades (QR nativo y boton de pago).
      */
     private function enableMultipago(): int
     {
@@ -1770,13 +2050,40 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
                 'bersacode' => '1234',
                 'username' => 'usuario',
                 'password' => 'clave',
-                'large' => 10,
+                'large' => 6,
+                'header' => 'HDR0000000000000000000SECTOR2AB1234',
+                'seeder' => 'semilla-prueba',
+                'webhook_key' => 'whk-prueba',
                 'testing' => false,
             ]),
             'updated_at' => now(),
         ]);
 
         return $id;
+    }
+
+    /**
+     * Carga una cuenta propia de Multipago en el pivote de un evento.
+     */
+    private function overrideMultipagoEvent(int $methodId, int $eventId, array $config): void
+    {
+        DB::table('tickets_event_payment_method')->updateOrInsert(
+            ['event_id' => $eventId, 'payment_method_id' => $methodId],
+            [
+                'enabled' => 1,
+                'config' => json_encode($config),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+    }
+
+    /**
+     * La mascara de secretos que usa el backend (8 bullets).
+     */
+    private function maskText(): string
+    {
+        return str_repeat("\u{2022}", 8);
     }
 
     /**

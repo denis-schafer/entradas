@@ -171,7 +171,7 @@ class TicketsPaymentMethodController extends Controller
         $gateway = $this->gatewayOrFail($code);
 
         if ($gateway->code() === 'multipago') {
-            return $this->testMultipago($gateway);
+            return $this->testMultipago($gateway, $request->integer('event_id') ?: null);
         }
 
         $eventId = $request->integer('event_id') ?: null;
@@ -190,6 +190,10 @@ class TicketsPaymentMethodController extends Controller
     /**
      * "Validar pagos": consulta la API de Multipago y procesa los cobros
      * pendientes (mismo camino que el webhook, pero a demanda).
+     *
+     * Con event_id se consulta la cuenta propia de ese evento; sin el, la
+     * cuenta global. Asi cada cliente con su propia cuenta puede validar sus
+     * cobros a mano.
      */
     public function validatePayments(Request $request, string $code): JsonResponse
     {
@@ -197,6 +201,12 @@ class TicketsPaymentMethodController extends Controller
 
         if ($gateway->code() !== 'multipago') {
             return response()->json(['message' => 'Validacion disponible solo para Multipago'], 422);
+        }
+
+        $eventId = $request->integer('event_id') ?: null;
+
+        if ($eventId !== null && ! DB::table('tickets_events')->where('id', $eventId)->exists()) {
+            return response()->json(['message' => 'Evento no existe'], 404);
         }
 
         $lock = Cache::lock('multipago-validate', 300);
@@ -208,7 +218,8 @@ class TicketsPaymentMethodController extends Controller
         try {
             $data = $gateway->consultCobros(
                 $request->input('desde'),
-                $request->input('hasta')
+                $request->input('hasta'),
+                $eventId
             );
 
             if ($data['status'] !== 'SUCCESS') {
@@ -342,18 +353,20 @@ class TicketsPaymentMethodController extends Controller
         }
     }
 
-    private function testMultipago($gateway): JsonResponse
+    private function testMultipago($gateway, ?int $eventId = null): JsonResponse
     {
-        if (trim((string) $gateway->methodConfig()['bersacode'] ?? '') === ''
-            || trim((string) $gateway->methodConfig()['username'] ?? '') === ''
-            || trim((string) $gateway->methodConfig()['password'] ?? '') === '') {
+        $bersacode = $gateway->bersacodeForEvent($eventId);
+        $username = $gateway->usernameForEvent($eventId);
+        $password = $gateway->passwordForEvent($eventId);
+
+        if ($bersacode === '' || $username === '' || $password === '') {
             return response()->json([
                 'ok' => false,
                 'message' => 'Faltan credenciales de Multipago (bersacode, usuario y contraseña).',
             ], 422);
         }
 
-        $cobros = $gateway->consultCobros(now()->toDateString(), now()->toDateString());
+        $cobros = $gateway->consultCobros(now()->toDateString(), now()->toDateString(), $eventId);
 
         if ($cobros['status'] === 'SUCCESS') {
             return response()->json([

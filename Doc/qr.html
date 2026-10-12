@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR nativo de Multipago - Estructura</title>
+<style>
+    :root {
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --panel2: #273549;
+        --border: #334155;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+        --green: #4ade80;
+        --yellow: #facc15;
+        --pink: #f472b6;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+        font-size: 15px;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 40px 24px 80px; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 20px; margin: 40px 0 12px; border-left: 4px solid var(--accent); padding-left: 10px; }
+    h3 { font-size: 16px; margin: 24px 0 8px; color: var(--accent); }
+    p { margin: 8px 0; }
+    .sub { color: var(--muted); margin-top: 0; }
+    code, pre, .mono { font-family: 'Consolas', 'Cascadia Mono', Menlo, monospace; }
+    code { background: var(--panel2); padding: 2px 6px; border-radius: 4px; color: var(--yellow); font-size: 13px; }
+    pre {
+        background: #0b1220;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px 16px;
+        overflow-x: auto;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+    .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 18px 20px;
+        margin: 16px 0;
+    }
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: var(--panel2); color: var(--accent); font-weight: 600; }
+    tr:hover td { background: rgba(56,189,248,.05); }
+    .tag { display: inline-block; min-width: 34px; text-align: center; background: var(--panel2); border-radius: 4px; padding: 1px 7px; color: var(--green); font-weight: 600; }
+    .kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 16px; margin: 8px 0; }
+    .kv .k { color: var(--muted); }
+    .badge {
+        display: inline-block; font-size: 12px; padding: 2px 9px; border-radius: 999px;
+        background: rgba(56,189,248,.15); color: var(--accent); border: 1px solid rgba(56,189,248,.4);
+    }
+    .note { border-left: 4px solid var(--yellow); background: rgba(250,204,21,.08); padding: 10px 16px; border-radius: 0 8px 8px 0; }
+    .ok { border-left: 4px solid var(--green); background: rgba(74,222,128,.08); padding: 10px 16px; border-radius: 0 8px 8px 0; }
+    .example span.c { color: var(--accent); }
+    .example span.i { color: var(--pink); }
+    .example span.s { color: var(--green); }
+    .example span.k { color: var(--yellow); }
+    .toc a { color: var(--accent); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    ul { margin: 8px 0; padding-left: 22px; }
+    li { margin: 4px 0; }
+    hr { border: 0; border-top: 1px solid var(--border); margin: 32px 0; }
+    .footer { color: var(--muted); font-size: 13px; margin-top: 48px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+    <h1>QR nativo de Multipago</h1>
+    <p class="sub">Estructura del contenido del QR de cobro (modalidad <strong>Multipago (QR)</strong>).</p>
+    <div class="toc panel">
+        <span class="badge">indice</span>
+        <ul>
+            <li><a href="#resumen">1. Resumen</a></li>
+            <li><a href="#identificador">2. Identificador de cliente</a></li>
+            <li><a href="#trama">3. Estructura de la trama</a></li>
+            <li><a href="#tlv">4. Campos del dato (TLV)</a></li>
+            <li><a href="#calculo">5. C&aacute;lculo de hash y CRC</a></li>
+            <li><a href="#ejemplo">6. Ejemplo completo</a></li>
+            <li><a href="#webhook">7. Webhook de cobro</a></li>
+            <li><a href="#requisitos">8. Requisitos de configuraci&oacute;n</a></li>
+        </ul>
+    </div>
+
+    <h2 id="resumen">1. Resumen</h2>
+    <p>
+        El <strong>QR nativo</strong> es el contenido que se codifica dentro del c&oacute;digo QR que el
+        cliente escanea para pagar una orden. Se usa en la modalidad
+        <em>Multipago (QR)</em> del medio de pago <code>multipago</code>.
+    </p>
+    <div class="note">
+        <strong>No presenta deuda.</strong> El importe y el vencimiento viajan dentro del propio QR,
+        por lo que no se usa la API de <code>obtener_deuda</code> (que reemplazar&iacute;a toda la base del
+        comercio en Multipago). Multipago lee el monto y la fecha directamente del c&oacute;digo escaneado.
+    </div>
+    <p>La trama es 100% ASCII y se compone de cuatro bloques:</p>
+    <pre>[ cabecera ] [ 81 ][ LL ][ dato ] [ sector2 ] [ CCCC ]
+     |              |                 |          |
+   convenio     sector1            convenio    CRC16</pre>
+
+    <h2 id="identificador">2. Identificador de cliente</h2>
+    <p>
+        Es la referencia del cliente ante Multipago y es <strong>id&eacute;ntico al del bot&oacute;n de pago</strong>
+        (PUM): la parte que identifica al cliente son <strong>comercio + id de cliente</strong>, sin d&iacute;gito verificador.
+    </p>
+    <div class="panel">
+        <div class="kv">
+            <div class="k">Longitud total</div><div class="mono">10 d&iacute;gitos</div>
+            <div class="k">Comercio</div><div class="mono">bersacode</div>
+            <div class="k">Id de cliente</div><div class="mono">order_id &rarr; 6 d&iacute;gitos</div>
+        </div>
+    </div>
+    <ul>
+        <li><strong>Comercio (4 d&iacute;gitos):</strong> el <code>bersacode</code> del convenio, completado con ceros a la izquierda.</li>
+        <li><strong>Id de cliente (6 d&iacute;gitos):</strong> el <code>order_id</code> de la venta; se toman sus &uacute;ltimos
+            <code>large</code> d&iacute;gitos (par&aacute;metro del convenio) y se completa con ceros a la izquierda hasta 6.</li>
+    </ul>
+    <pre>identificador = pad4(bersacode) . pad6( substr(order_id, -large) )   // 10 d&iacute;gitos
+
+ej.:  bersacode = "1234",  order_id = 42,  large = 6
+      comercio = "1234"   cliente = "000042"
+      identificador = "1234000042"</pre>
+
+    <h2 id="trama">3. Estructura de la trama</h2>
+    <table>
+        <tr><th>Bloque</th><th>Origen</th><th>Descripci&oacute;n</th></tr>
+        <tr>
+            <td class="mono">cabecera</td>
+            <td class="mono">header[0 .. -17]</td>
+            <td>Encabezado del convenio sin los &uacute;ltimos 17 caracteres.</td>
+        </tr>
+        <tr>
+            <td class="mono">81 LL dato</td>
+            <td class="mono">sector1</td>
+            <td>Bloque <code>81</code> + largo del <code>dato</code> en 2 d&iacute;gitos + el <code>dato</code> (TLV).</td>
+        </tr>
+        <tr>
+            <td class="mono">sector2</td>
+            <td class="mono">header[-17 .. -4]</td>
+            <td>13 caracteres del encabezado del convenio (entre la cabecera y su CRC de ejemplo).</td>
+        </tr>
+        <tr>
+            <td class="mono">CCCC</td>
+            <td class="mono">crc16</td>
+            <td>CRC16-CCITT de <code>cabecera + sector1 + sector2</code>.</td>
+        </tr>
+    </table>
+    <p>
+        El <code>header</code> del convenio trae al final 4 caracteres de un CRC de ejemplo que
+        <strong>se descarta</strong>: se recalcula el CRC real sobre la trama armada.
+    </p>
+
+    <h2 id="tlv">4. Campos del dato (TLV)</h2>
+    <p>
+        El <code>dato</code> es una sucesi&oacute;n de campos <em>Tag &ndash; Length &ndash; Value</em>.
+        El <strong>largo es de 2 d&iacute;gitos decimales</strong> (con ceros a la izquierda). El orden es fijo:
+    </p>
+    <table>
+        <tr><th>Tag</th><th>Campo</th><th>Largo</th><th>Ejemplo</th><th>Descripci&oacute;n</th></tr>
+        <tr>
+            <td><span class="tag">00</span></td>
+            <td>Identificador</td>
+            <td>10</td>
+            <td class="mono">1234000042</td>
+            <td>Identificador de cliente (comercio + id de cliente).</td>
+        </tr>
+        <tr>
+            <td><span class="tag">01</span></td>
+            <td>Importe</td>
+            <td>var.</td>
+            <td class="mono">5000.00</td>
+            <td>Total a pagar, 2 decimales, separador punto (sin separador de miles).</td>
+        </tr>
+        <tr>
+            <td><span class="tag">02</span></td>
+            <td>Hash corto</td>
+            <td>4</td>
+            <td class="mono">A32D</td>
+            <td><code>SHA-256(seeder + identificador)</code>, primeros 2 bytes en hex (ver &sect;5).</td>
+        </tr>
+        <tr>
+            <td><span class="tag">03</span></td>
+            <td>Vencimiento</td>
+            <td>6</td>
+            <td class="mono">131026</td>
+            <td>Fecha de vencimiento en <code>ddmmaa</code> (por defecto: ahora + 24 h).</td>
+        </tr>
+        <tr>
+            <td><span class="tag">04</span></td>
+            <td>Id del pago</td>
+            <td>var.</td>
+            <td class="mono">42</td>
+            <td>Nuestro <code>order_id</code>. Permite asociar el cobro del webhook a la orden.</td>
+        </tr>
+    </table>
+
+    <h3>Hash corto (tag 02)</h3>
+    <pre>hash = SHA-256( seeder . identificador )        // bytes crudos
+corto = hex( (byte0 &lt;&lt; 8) | byte1 )             // 2 primeros bytes -> 4 hex may&uacute;sculas</pre>
+
+    <h3>Vencimiento (tag 03)</h3>
+    <p class="mono">ddmmaa = formato d&iacute;a-mes-a&ntilde;o con 2 d&iacute;gitos cada uno.</p>
+
+    <h2 id="calculo">5. C&aacute;lculo de hash y CRC</h2>
+    <div class="panel">
+        <h3 style="margin-top:0">CRC16-CCITT (bloque CCCC)</h3>
+        <div class="kv">
+            <div class="k">Inicial</div><div class="mono">0xFFFF</div>
+            <div class="k">Polinomio</div><div class="mono">0x1021</div>
+            <div class="k">Entrada</div><div class="mono">cabecera + sector1 + sector2</div>
+            <div class="k">Salida</div><div class="mono">4 d&iacute;gitos hex may&uacute;sculas</div>
+        </div>
+    </div>
+
+    <h2 id="ejemplo">6. Ejemplo completo</h2>
+    <p>Con <code>bersacode = 1234</code>, <code>large = 6</code>, <code>order_id = 42</code>,
+        <code>importe = 5000.00</code>, <code>vencimiento = 131026</code> y
+        <code>header = HDR0000000000000000000SECTOR2AB1234</code>, <code>seeder = semilla-prueba</code>:</p>
+
+    <div class="panel">
+        <div class="kv">
+            <div class="k">identificador</div><div class="mono">1234000042</div>
+            <div class="k">hash corto</div><div class="mono">A32D</div>
+            <div class="k">cabecera</div><div class="mono">HDR000000000000000</div>
+            <div class="k">sector2</div><div class="mono">0000SECTOR2AB</div>
+        </div>
+    </div>
+
+    <p><strong>dato</strong> (TLV concatenado):</p>
+    <pre class="example"><span class="k">00</span> <span class="k">10</span> <span class="i">1234000042</span> <span class="k">01</span> <span class="k">07</span> <span class="i">5000.00</span> <span class="k">02</span> <span class="k">04</span> <span class="i">A32D</span> <span class="k">03</span> <span class="k">06</span> <span class="i">131026</span> <span class="k">04</span> <span class="k">02</span> <span class="i">42</span></pre>
+
+    <p><strong>sector1</strong> = <code>81</code> + largo(<code>dato</code>) + <code>dato</code>:</p>
+    <pre class="example"><span class="k">81</span> <span class="k">49</span> <span class="c">0010123400004201075000.000204A32D0306131026040242</span></pre>
+
+    <p><strong>trama sin CRC</strong> = cabecera + sector1 + sector2:</p>
+    <pre class="example"><span class="s">HDR000000000000000</span><span class="c">81490010123400004201075000.000204A32D0306131026040242</span><span class="s">0000SECTOR2AB</span></pre>
+
+    <p><strong>contenido final del QR</strong> (trama sin CRC + <code>CCCC</code>):</p>
+    <pre class="example"><span class="s">HDR000000000000000</span><span class="c">81490010123400004201075000.000204A32D0306131026040242</span><span class="s">0000SECTOR2AB</span><span class="k">AC82</span></pre>
+    <div class="ok">
+        <span class="mono">AC82</span> es el CRC16-CCITT calculado sobre la trama sin CRC.
+    </div>
+
+    <h2 id="webhook">7. Webhook de cobro</h2>
+    <p>
+        Multipago notifica el cobro a una <strong>&uacute;nica URL</strong> (una sola cuenta/URL para toda la
+        instalaci&oacute;n), protegida por una <code>webhook_key</code> en la ruta:
+    </p>
+    <pre>/tickets/multipago/webhook/{webhook_key}</pre>
+    <p>El cuerpo del aviso (JSON) contiene:</p>
+    <pre>{
+    "customer_id":   "1234000042",   // identificador (comercio + id de cliente)
+    "amount":        5000.00,        // importe cobrado
+    "identifier":    "MP-COBRO-1",   // identificador del cobro en Multipago
+    "fecha_pago":    "2026-10-13",
+    "id_pago":       42              // opcional: nuestro order_id (tag 04)
+}</pre>
+    <h3>Asociaci&oacute;n a la orden</h3>
+    <ul>
+        <li><strong>Por <code>id_pago</code>:</strong> si viene, es directamente nuestro <code>order_id</code>.</li>
+        <li><strong>Por <code>customer_id</code>:</strong> si no viene <code>id_pago</code>, se toman los
+            <strong>&uacute;ltimos 6 d&iacute;gitos</strong> del identificador (el id de cliente) como <code>order_id</code>.</li>
+    </ul>
+    <p>El cobro se registra y la orden pasa a <code>paid</code> de forma idempotente (se deduplica por <code>identifier</code>).</p>
+
+    <h2 id="requisitos">8. Requisitos de configuraci&oacute;n</h2>
+    <p>Para ofrecer la modalidad QR de un evento (o de la cuenta global) hacen falta dos datos que entrega Multipago:</p>
+    <table>
+        <tr><th>Clave</th><th>Uso</th></tr>
+        <tr><td class="mono">header</td><td>Encabezado del convenio (cabecera + sector2).</td></tr>
+        <tr><td class="mono">seeder</td><td>Semilla del hash corto (tag 02).</td></tr>
+    </table>
+    <p>
+        Adem&aacute;s se usan <code>bersacode</code> (comercio) y <code>large</code> (d&iacute;gitos de cliente),
+        compartidos con el bot&oacute;n de pago. Sin <code>header</code> y <code>seeder</code> la modalidad QR
+        no se ofrece; con ellos cargados, la generaci&oacute;n del QR puede fallar con
+        <span class="mono">422</span> si se solicita sin la configuraci&oacute;n completa.
+    </p>
+
+    <hr>
+    <p class="footer">Multipago &mdash; QR nativo &middot; documentaci&oacute;n interna</p>
+</div>
+</body>
+</html>

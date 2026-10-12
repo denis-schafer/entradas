@@ -51,12 +51,27 @@ class EventPaymentMethods
             if ($gateway->code() === 'multipago') {
                 // Multipago expone dos modalidades independientes: QR y boton
                 // de pago. Cada evento habilita o deshabilita cada una.
-                if (trim((string) $gateway->methodConfig()['bersacode'] ?? '') === ''
-                    || trim((string) $gateway->methodConfig()['username'] ?? '') === '') {
+                //
+                // Credenciales: el evento puede tener cuenta propia; si le
+                // faltan, usa la global. Para ofrecer el medio alcanza con
+                // bersacode + usuario (la contrasena se pide recien al validar).
+                $bersacode = $gateway instanceof MultipagoGateway
+                    ? $gateway->bersacodeForEvent($eventId)
+                    : '';
+                $username = $gateway instanceof MultipagoGateway
+                    ? $gateway->usernameForEvent($eventId)
+                    : '';
+
+                if ($bersacode === '' || $username === '') {
                     continue;
                 }
 
-                if ($gateway->qrEnabled($eventId)) {
+                // El QR nativo ademas necesita el header y la semilla del
+                // convenio (el evento puede tener los suyos). Sin ellos solo
+                // queda ofrecible el boton de pago.
+                $qrReady = $gateway instanceof MultipagoGateway && $gateway->qrReady($eventId);
+
+                if ($qrReady && $gateway->qrEnabled($eventId)) {
                     $methods[] = [
                         'code' => 'multipago',
                         'variant' => 'qr',

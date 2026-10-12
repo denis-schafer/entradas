@@ -334,9 +334,15 @@ class TicketsPosController extends Controller
             abort(404);
         }
 
-        $code = $this->multipagoCodeForOrder($order);
+        try {
+            $built = $this->multipagoBuild($order, null);
+        } catch (PaymentSetupException) {
+            abort(404);
+        }
 
-        return response(QrRenderer::svg($code, (int) $request->query('size', 400)), 200, [
+        $value = $built['content'] ?? $built['code'];
+
+        return response(QrRenderer::svg($value, (int) $request->query('size', 400)), 200, [
             'Content-Type' => 'image/svg+xml',
             'Cache-Control' => 'private, max-age=60',
         ]);
@@ -551,40 +557,75 @@ class TicketsPosController extends Controller
             ];
         }
 
-        // Multipago: el PUM es deterministico (orden + vencimiento + importe).
-        $gateway = PaymentGatewayRegistry::for('multipago');
-        $code = $this->multipagoCodeForOrder($order);
+        // Multipago: la variante (qr o boton) decide el formato del pago. El
+        // QR nativo es deterministico dentro del dia (importe + vencimiento).
+        $built = $this->multipagoBuild($order, $variant);
 
         return [
             'method' => 'multipago',
-            'variant' => $variant ?: 'qr',
+            'variant' => $built['variant'],
             'status' => 'pending',
-            'link' => $gateway->pumUrl($code),
-            'preference_id' => $code,
-            'code' => $code,
+            'link' => $built['link'],
+            'preference_id' => $built['reference'],
+            'code' => $built['code'],
             'qr_url' => "/tickets-admin/pos/orders/{$orderId}/multipago-qr.svg",
         ];
     }
 
     /**
-     * Genera (o recalcula) el codigo Multipago de una orden y lo guarda como
-     * payment_reference para que el webhook pueda resolver el pago.
+     * Arma el pago Multipago de una orden y persiste el medio, la variante y la
+     * referencia (identificador del QR o codigo PUM) para que el webhook pueda
+     * resolver el pago. Si no se indica variante, se reusa la guardada (o QR).
+     *
+     * @return array{variant:string,reference:string,code:string,content:?string,link:?string}
+     *
+     * @throws PaymentSetupException
      */
-    private function multipagoCodeForOrder(object $order): string
+    private function multipagoBuild(object $order, ?string $variant): array
     {
         $gateway = PaymentGatewayRegistry::for('multipago');
+        $variant = $this->multipagoVariant($order, $variant);
+        $orderId = (int) $order->id;
+        $eventId = (int) $order->event_id;
         $due = now()->addHours(24)->toDateString();
-        $code = $gateway->pumCode((int) $order->id, $due, (float) $order->total);
 
-        if ((string) $order->payment_reference !== $code) {
-            DB::table('tickets_orders')->where('id', $order->id)->update([
-                'payment_method' => 'multipago',
-                'payment_reference' => $code,
-                'updated_at' => now(),
-            ]);
+        if ($variant === 'button') {
+            $reference = $gateway->pumCode($orderId, $due, (float) $order->total, $eventId);
+            $content = null;
+            $link = $gateway->pumUrl($reference);
+        } else {
+            $reference = $gateway->customerIdentifier($orderId, $eventId);
+            $content = $gateway->qrContent($orderId, $due, (float) $order->total, $eventId);
+            $link = null;
         }
 
-        return $code;
+        DB::table('tickets_orders')->where('id', $orderId)->update([
+            'payment_method' => 'multipago',
+            'payment_variant' => $variant,
+            'payment_reference' => $reference,
+            'updated_at' => now(),
+        ]);
+
+        return [
+            'variant' => $variant,
+            'reference' => $reference,
+            'code' => $reference,
+            'content' => $content,
+            'link' => $link,
+        ];
+    }
+
+    /**
+     * Variante efectiva de Multipago: la pedida, si no la guardada en la orden,
+     * y por defecto el QR.
+     */
+    private function multipagoVariant(object $order, ?string $variant): string
+    {
+        if (in_array($variant, ['qr', 'button'], true)) {
+            return $variant;
+        }
+
+        return (string) ($order->payment_variant ?? '') === 'button' ? 'button' : 'qr';
     }
 
     /**

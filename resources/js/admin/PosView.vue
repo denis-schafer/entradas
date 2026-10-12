@@ -943,7 +943,7 @@ onUnmounted(() => {
                             </div>
                         </div>
 
-                        <div class="pos__share">
+                        <div v-if="salePayment.link" class="pos__share">
                             <div class="small text-faint mb-1">Link de pago para el comprador</div>
                             <div class="d-flex gap-2">
                                 <input
@@ -967,7 +967,7 @@ onUnmounted(() => {
                         <button v-if="saleIsPaid" class="btn btn-et-primary" @click="printReceipt">
                             <i class="bi bi-printer me-1"></i>Imprimir comprobante
                         </button>
-                        <button v-else class="btn btn-et-primary" @click="sendPaymentByWhatsApp">
+                        <button v-else-if="!salePayment || salePayment.link" class="btn btn-et-primary" @click="sendPaymentByWhatsApp">
                             <i class="bi bi-whatsapp me-1"></i>Enviar pago
                         </button>
                     </footer>

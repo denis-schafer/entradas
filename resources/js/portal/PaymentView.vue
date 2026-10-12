@@ -96,7 +96,7 @@ async function startMercadoPago() {
 async function startMultipago() {
     try {
         const { data } = await api.get(
-            `tickets-portal/api/orders/${orderId}/multipago-code`
+            `tickets-portal/api/orders/${orderId}/multipago-code?variant=qr`
         );
 
         qr.value = data;
@@ -119,7 +119,7 @@ async function startMultipagoButton() {
 
     try {
         const { data } = await api.get(
-            `tickets-portal/api/orders/${orderId}/multipago-code`
+            `tickets-portal/api/orders/${orderId}/multipago-code?variant=button`
         );
 
         qr.value = data;
@@ -252,8 +252,8 @@ onBeforeUnmount(stopPolling);
             <div v-else class="payment__qr-card et-surface-raised p-4 text-center">
                 <template v-if="chosen.variant === 'qr'">
                     <p class="small text-muted-2 mb-3">
-                        Escaneá el QR con cualquier billetera virtual o abrí el
-                        enlace. La orden se confirma sola cuando se notifique el pago.
+                        Escaneá el QR con cualquier billetera virtual. La orden
+                        se confirma sola cuando Multipago notifique el pago.
                     </p>
 
                     <img
@@ -293,6 +293,7 @@ onBeforeUnmount(stopPolling);
                 </div>
 
                 <a
+                    v-if="qr.url"
                     :href="qr.url"
                     target="_blank"
                     rel="noopener"
