@@ -12,7 +12,7 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue';
 import { useRoute, go, defineRoutes } from './router.js';
-import { destroyRealtime, realtimeState } from '../realtime.js';
+import { destroyRealtime, listen, realtimeState } from '../realtime.js';
 import api from '../api.js';
 import DashboardView from '../admin/DashboardView.vue';
 import EventsView from '../admin/EventsView.vue';
@@ -189,7 +189,29 @@ async function logout() {
     window.location.reload();
 }
 
+/*
+| Cierre forzado. Un administrador desactivo a este operador: el servidor ya
+| borro su sesion y mando el aviso por websocket. No hace falta esperar a que
+| expire la sesion: se cierra aca y se recarga, y el proximo /auth/me vuelve al
+| login (ademas, el login ya rechaza a los deshabilitados).
+*/
+function forceLogout() {
+    destroyRealtime();
+
+    emit('logged-out');
+    window.location.reload();
+}
+
+let unsubscribeUserStatus = null;
+
 onMounted(() => {
+    // Aviso de desactivacion: escucha en el canal privado propio.
+    unsubscribeUserStatus = listen(`tickets.user.${user.value.id}`, 'user.status', (payload) => {
+        if (payload && payload.enable === false) {
+            forceLogout();
+        }
+    });
+
     if (route.value.name === 'loading' || !(route.value.name in VIEWS)) {
         go(firstAllowedRoute());
 
@@ -211,6 +233,10 @@ watch(() => route.value.name, () => {
 });
 
 onBeforeUnmount(() => {
+    if (unsubscribeUserStatus) {
+        unsubscribeUserStatus();
+    }
+
     destroyRealtime();
 });
 </script>

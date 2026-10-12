@@ -46,3 +46,13 @@ Broadcast::channel('tickets.order.{token}', function (User $user, string $token)
         ->where('public_token', $token)
         ->exists();
 });
+
+/*
+| Canal privado por usuario. Solo el propio usuario puede escucharlo: se usa
+| para avisarle, en tiempo real, que un administrador lo desactivo, y que cierre
+| la sesion. El id va por la ruta, pero la autorizacion exige que coincida con
+| el usuario autenticado.
+*/
+Broadcast::channel('tickets.user.{id}', function (User $user, string $id) {
+    return (int) $user->id === (int) $id;
+});

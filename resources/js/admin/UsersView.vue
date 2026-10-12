@@ -344,10 +344,13 @@ async function toggleEnable(user) {
     try {
         await api.put(`tickets-admin/users/${user.id}`, { enable: !user.enable });
 
-        toast(user.enable ? 'Usuario reactivado' : 'Usuario desactivado', 'success');
-        await load();
+        toast(user.enable ? 'Usuario desactivado' : 'Usuario reactivado', 'success');
     } catch (err) {
         toast(toError(err).message, 'danger');
+    } finally {
+        // Recargar siempre: si la peticion fallo, el switch vuelve a su estado
+        // real en vez de quedar visualmente cambiado.
+        await load();
     }
 }
 
@@ -538,24 +541,31 @@ onMounted(() => {
                                 </div>
                             </td>
                             <td class="text-end">
-                                <div class="btn-row">
-                                    <button class="btn btn-et-ghost btn-sm" @click="openEdit(row)">
-                                        Editar
-                                    </button>
-                                    <button
-                                        v-if="!isSelf(row)"
-                                        class="btn btn-et-ghost btn-sm"
-                                        :disabled="!row.enable"
-                                        @click="toggleEnable(row)"
-                                    >
-                                        {{ row.enable ? 'Desactivar' : 'Reactivar' }}
+                                <div class="d-flex align-items-center justify-content-end gap-2">
+                                    <div class="form-check form-switch m-0">
+                                        <input
+                                            :id="`user-enable-${row.id}`"
+                                            class="form-check-input"
+                                            type="checkbox"
+                                            role="switch"
+                                            :checked="row.enable"
+                                            :disabled="isSelf(row)"
+                                            :title="isSelf(row)
+                                                ? 'No podes desactivar tu propio usuario'
+                                                : (row.enable ? 'Desactivar' : 'Reactivar')"
+                                            @change="toggleEnable(row)"
+                                        >
+                                    </div>
+                                    <button class="btn btn-et-ghost btn-sm" title="Editar" @click="openEdit(row)">
+                                        <i class="bi bi-pencil"></i>
                                     </button>
                                     <button
                                         v-if="!isSelf(row)"
                                         class="btn btn-et-ghost btn-sm btn-danger-soft"
+                                        title="Eliminar"
                                         @click="destroy(row)"
                                     >
-                                        Eliminar
+                                        <i class="bi bi-trash"></i>
                                     </button>
                                 </div>
                             </td>

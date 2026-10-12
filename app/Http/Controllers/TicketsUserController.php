@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\Payments\EventPaymentMethods;
+use App\Services\Realtime;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -233,6 +234,21 @@ class TicketsUserController extends Controller
         }
 
         $user->fill($validated)->save();
+
+        /*
+        | Al desactivar a un operador hay que sacarlo al instante: si no,
+        | seguiria operando con la sesion abierta hasta que expire. Se borran
+        | sus sesiones y el remember_token (si no, la cookie "recordarme" lo
+        | volveria a loguear) y se le avisa por websocket para que cierre la
+        | pestana. El login ya rechaza a los deshabilitados, asi que despues
+        | tampoco puede volver a entrar.
+        */
+        if ($willBeDisabled) {
+            DB::table('sessions')->where('user_id', $id)->delete();
+            $user->forceFill(['remember_token' => null])->save();
+
+            Realtime::userStatus($id, false);
+        }
 
         /*
         | Si el admin/operador ingreso una contrasena nueva en el form de

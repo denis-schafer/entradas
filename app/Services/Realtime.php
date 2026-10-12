@@ -111,4 +111,13 @@ class Realtime
     {
         static::dispatch(new \App\Events\OrderCreated($orderId, $eventId, $buyerName, $total));
     }
+
+    /**
+     * Estado (habilitado/deshabilitado) de un usuario del panel, para su
+     * propio canal. Al desactivarlo, el cliente cierra la sesion al instante.
+     */
+    public static function userStatus(int $userId, bool $enable): void
+    {
+        static::dispatch(new \App\Events\UserStatusChanged($userId, $enable));
+    }
 }

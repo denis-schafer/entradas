@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Events\UserStatusChanged;
 use App\Models\User;
 use App\Services\Payments\PaymentGatewayRegistry;
 use App\Support\QrPayload;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -897,6 +899,44 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
             ->putJson("/tickets-admin/users/{$cashier->id}", ['enable' => false])
             ->assertOk();
         $this->assertFalse((bool) $cashier->fresh()->enable);
+    }
+
+    /**
+     * Desactivar a un operador cierra su sesion al instante: se borran sus
+     * sesiones abiertas, se limpia el remember_token y se avisa por websocket
+     * para que el cliente cierre la pestana. Asi no sigue operando con la
+     * sesion abierta, ni vuelve a entrar con la cookie "recordarme".
+     */
+    public function test_desactivar_un_operador_cierra_su_sesion_y_avisa_por_websocket(): void
+    {
+        $admin = $this->admin();
+        $cashier = $this->cashier();
+
+        DB::table('sessions')->insert([
+            'id' => 'sesion-cajero',
+            'user_id' => $cashier->id,
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'test',
+            'payload' => base64_encode(serialize([])),
+            'last_activity' => now()->timestamp,
+        ]);
+
+        User::whereKey($cashier->id)->update(['remember_token' => 'token-viejo']);
+
+        Event::fake([UserStatusChanged::class]);
+
+        $this->actingAs($admin)
+            ->putJson("/tickets-admin/users/{$cashier->id}", ['enable' => false])
+            ->assertOk();
+
+        $fresh = $cashier->fresh();
+        $this->assertFalse((bool) $fresh->enable);
+        $this->assertNull($fresh->remember_token);
+        $this->assertSame(0, DB::table('sessions')->where('user_id', $cashier->id)->count());
+
+        Event::assertDispatched(UserStatusChanged::class, function (UserStatusChanged $event) use ($cashier) {
+            return $event->userId === $cashier->id && $event->enable === false;
+        });
     }
 
     /**
