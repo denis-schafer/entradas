@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\PaymentMethodFilter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,8 @@ class TicketsStatisticsController extends Controller
         */
         $allowedIds = $this->scopeEventIds($request, $eventId);
 
+        $paymentMethod = PaymentMethodFilter::normalize($request->query('payment_method'));
+
         $events = DB::table('tickets_events');
         $orders = DB::table('tickets_orders as o');
 
@@ -28,6 +31,8 @@ class TicketsStatisticsController extends Controller
             $events->whereIn('id', $allowedIds);
             $orders->whereIn('o.event_id', $allowedIds);
         }
+
+        PaymentMethodFilter::constrain($orders, $paymentMethod, 'o.payment_method', 'o.payment_variant');
 
         $tickets = DB::table('tickets_tickets as t')
             ->join('tickets_orders as o', 't.order_id', '=', 'o.id');
@@ -39,9 +44,12 @@ class TicketsStatisticsController extends Controller
             $scans->whereIn('s.event_id', $allowedIds);
         }
 
+        PaymentMethodFilter::constrain($tickets, $paymentMethod, 'o.payment_method', 'o.payment_variant');
+
         $byEvent = DB::table('tickets_events as e')
-            ->leftJoin('tickets_orders as o', function ($join) {
+            ->leftJoin('tickets_orders as o', function ($join) use ($paymentMethod) {
                 $join->on('o.event_id', '=', 'e.id')->where('o.status', 'paid');
+                PaymentMethodFilter::constrain($join, $paymentMethod, 'o.payment_method', 'o.payment_variant');
             })
             ->when($allowedIds !== null, fn ($q) => $q->whereIn('e.id', $allowedIds))
             ->groupBy('e.id', 'e.name', 'e.starts_at')
@@ -106,6 +114,7 @@ class TicketsStatisticsController extends Controller
                 'o.id', 'o.public_token', 'o.event_id', 'e.name as event_name',
                 'o.buyer_name', 'o.buyer_email', 'o.buyer_dni', 'o.buyer_phone',
                 'o.subtotal', 'o.total', 'o.payment_mode', 'o.installment_count',
+                'o.payment_method', 'o.payment_variant',
                 'o.status', 'o.payment_external_id', 'o.payment_amount',
                 'o.created_at', 'o.paid_at',
             ])
@@ -119,6 +128,8 @@ class TicketsStatisticsController extends Controller
             $query->where('o.status', $status);
         }
 
+        PaymentMethodFilter::apply($query, $request->query('payment_method'), 'o.payment_method', 'o.payment_variant');
+
         $rows = $query->cursor();
 
         $filename = 'entradas_ordenes_'.now()->format('Ymd_His').'.csv';
@@ -131,15 +142,22 @@ class TicketsStatisticsController extends Controller
 
             fputcsv($out, [
                 'ID', 'Token', 'Evento', 'Comprador', 'Email', 'DNI', 'Telefono',
-                'Subtotal', 'Total', 'Modo de pago', 'Cuotas', 'Estado',
-                'MP Payment ID', 'MP Neto', 'Creada', 'Pagada',
+                'Subtotal', 'Total', 'Modo de pago', 'Medio de pago', 'Modalidad',
+                'Cuotas', 'Estado', 'MP Payment ID', 'MP Neto', 'Creada', 'Pagada',
             ]);
 
             foreach ($rows as $o) {
+                $method = $o->payment_method ?: 'efectivo';
+
+                if ($method === 'multipago') {
+                    $method = 'Multipago ('.(($o->payment_variant ?? '') === 'button' ? 'boton de pago' : 'QR').')';
+                }
+
                 fputcsv($out, [
                     $o->id, $o->public_token, $o->event_name, $o->buyer_name, $o->buyer_email,
                     $o->buyer_dni, $o->buyer_phone, $o->subtotal, $o->total,
-                    $o->payment_mode, $o->installment_count, $o->status,
+                    $o->payment_mode, $method, $o->payment_variant ?: '',
+                    $o->installment_count, $o->status,
                     $o->payment_external_id, $o->payment_amount, $o->created_at, $o->paid_at,
                 ]);
             }

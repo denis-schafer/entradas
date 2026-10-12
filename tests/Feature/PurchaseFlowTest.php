@@ -2076,6 +2076,67 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
     }
 
     /**
+     * El filtro por medio de pago acota los listados del panel (ordenes,
+     * dashboard, estadisticas y POS) por metodo y, en Multipago, por modalidad.
+     * Las ordenes viejas de Multipago sin variante cuentan como QR.
+     */
+    public function test_el_filtro_por_medio_de_pago_acota_los_listados(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $multipagoId = $this->enableMultipago();
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $this->allowPaymentMethod($seller, $multipagoId);
+        $buyer = $this->buyer();
+
+        $sell = function (array $payment) use ($seller, $eventId, $typeId, $buyer) {
+            return $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+                'event_id' => $eventId,
+                'buyer_id' => $buyer->id,
+                'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+                ...$payment,
+            ])->assertStatus(201);
+        };
+
+        $sell(['payment_method' => 'efectivo']);
+        $qrOrderId = (int) $sell(['payment_method' => 'multipago', 'payment_method_variant' => 'qr'])->json('order.id');
+        $sell(['payment_method' => 'multipago', 'payment_method_variant' => 'button']);
+
+        // Simula una orden vieja de Multipago sin modalidad: cuenta como QR.
+        DB::table('tickets_orders')->where('id', $qrOrderId)->update(['payment_variant' => null]);
+
+        $this->actingAs($admin);
+
+        // Listado de ordenes: total y por medio/modalidad.
+        $this->assertSame(3, $this->getJson('/tickets-admin/orders')->json('total'));
+        $this->assertSame(1, $this->getJson('/tickets-admin/orders?payment_method=efectivo')->json('total'));
+        $this->assertSame(2, $this->getJson('/tickets-admin/orders?payment_method=multipago')->json('total'));
+        $this->assertSame(1, $this->getJson('/tickets-admin/orders?payment_method=multipago:qr')->json('total'));
+        $this->assertSame(1, $this->getJson('/tickets-admin/orders?payment_method=multipago:button')->json('total'));
+        $this->assertSame(0, $this->getJson('/tickets-admin/orders?payment_method=mercadopago')->json('total'));
+
+        // Un medio desconocido no deja la lista en blanco.
+        $this->assertSame(3, $this->getJson('/tickets-admin/orders?payment_method=foo')->json('total'));
+
+        // Dashboard: las ultimas ordenes y los contadores respetan el filtro.
+        $recent = $this->getJson('/tickets-admin/dashboard?payment_method=multipago:button')->json('recent_orders');
+        $this->assertCount(1, $recent);
+        $this->assertSame('button', DB::table('tickets_orders')->where('id', $recent[0]['id'])->value('payment_variant'));
+
+        // Estadisticas: el resumen acota ordenes y entradas. La orden QR quedo
+        // sin variante, asi que igual cae en 'multipago:qr'.
+        $stats = $this->getJson('/tickets-admin/statistics?payment_method=multipago:qr')->json();
+        $this->assertSame(1, $stats['orders']['total']);
+        $this->assertSame(1, $stats['tickets']['total']);
+
+        // POS: el historial del vendedor tambien filtra.
+        $this->assertCount(1, $this->getJson('/tickets-admin/pos/sales?payment_method=efectivo')->json());
+        $this->assertCount(2, $this->getJson('/tickets-admin/pos/sales?payment_method=multipago')->json());
+        $this->assertCount(1, $this->getJson('/tickets-admin/pos/sales?payment_method=multipago:button')->json());
+    }
+
+    /**
      * Habilita Multipago a nivel global con credenciales minimas (cuenta, header
      * y semilla del QR), que es lo que lo vuelve disponible para todos los
      * eventos con sus dos modalidades (QR nativo y boton de pago).

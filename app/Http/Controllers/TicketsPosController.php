@@ -9,6 +9,7 @@ use App\Services\Payments\MercadoPagoCheckout;
 use App\Services\Payments\PaymentGatewayRegistry;
 use App\Services\Payments\PaymentSetupException;
 use App\Services\TicketOrderService;
+use App\Support\PaymentMethodFilter;
 use App\Support\QrRenderer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -373,6 +374,8 @@ class TicketsPosController extends Controller
         }
 
         $this->scopeEvents($request, $query, 'o.event_id');
+
+        PaymentMethodFilter::apply($query, $request->query('payment_method'), 'o.payment_method', 'o.payment_variant');
 
         return response()->json($query->limit(100)->get());
     }

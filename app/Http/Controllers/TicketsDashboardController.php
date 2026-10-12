@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Support\PaymentMethodFilter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,10 @@ class TicketsDashboardController extends Controller
             $events->where('id', (int) $eventId);
             $orders->where('event_id', (int) $eventId);
         }
+
+        // Filtro por medio de pago: acota los numeros de ordenes y la recaudacion.
+        // Los escaneos no dependen del medio, asi que quedan fuera.
+        PaymentMethodFilter::apply($orders, $request->query('payment_method'), 'o.payment_method', 'o.payment_variant');
 
         $totalEvents = (clone $events)->count();
         $publishedEvents = (clone $events)->where('status', 'published')->count();

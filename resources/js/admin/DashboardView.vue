@@ -10,6 +10,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
 import { listen, startPolling, stopPolling } from '../realtime.js';
+import { PAYMENT_FILTERS } from '../paymentMethods.js';
 import StatCard from '../ui/StatCard.vue';
 import StatusBadge from '../ui/StatusBadge.vue';
 import EmptyState from '../ui/EmptyState.vue';
@@ -29,6 +30,9 @@ const error = ref('');
 const events = ref([]);
 const eventId = ref(props.event_id ? Number(props.event_id) : '');
 
+// Filtro por medio de pago: acota los numeros y las ultimas ordenes.
+const paymentMethod = ref('');
+
 /* Cada evento del panel pide un refresco. No se usan los payloads: digan lo
    que digan, la fuente de verdad es la respuesta del dashboard. */
 let unsubscribers = [];
@@ -37,6 +41,7 @@ async function load() {
     try {
         const { data: payload } = await api.get('tickets-admin/dashboard', {
             event_id: eventId.value || undefined,
+            payment_method: paymentMethod.value || undefined,
         });
 
         data.value = payload;
@@ -57,7 +62,7 @@ async function loadEvents() {
     }
 }
 
-function applyEventFilter() {
+function applyFilters() {
     loading.value = true;
     load();
 }
@@ -134,17 +139,31 @@ onBeforeUnmount(() => {
                 <p class="text-muted-2 small mb-0">{{ currentEventName }}</p>
             </div>
 
-            <select
-                v-model="eventId"
-                class="form-select"
-                style="max-width: 260px"
-                @change="applyEventFilter"
-            >
-                <option value="">Todos los eventos</option>
-                <option v-for="event in events" :key="event.id" :value="event.id">
-                    {{ event.name }}
-                </option>
-            </select>
+            <div class="d-flex gap-2 flex-wrap">
+                <select
+                    v-model="eventId"
+                    class="form-select"
+                    style="max-width: 260px"
+                    @change="applyFilters"
+                >
+                    <option value="">Todos los eventos</option>
+                    <option v-for="event in events" :key="event.id" :value="event.id">
+                        {{ event.name }}
+                    </option>
+                </select>
+
+                <select
+                    v-model="paymentMethod"
+                    class="form-select"
+                    style="max-width: 220px"
+                    title="Filtrar por medio de pago"
+                    @change="applyFilters"
+                >
+                    <option v-for="option in PAYMENT_FILTERS" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                    </option>
+                </select>
+            </div>
         </header>
 
         <p v-if="error" class="small" style="color: var(--et-danger)">

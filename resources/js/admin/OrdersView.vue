@@ -12,6 +12,7 @@
 import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
 import { listen, startPolling, stopPolling } from '../realtime.js';
+import { PAYMENT_FILTERS } from '../paymentMethods.js';
 import StatusBadge from '../ui/StatusBadge.vue';
 import EmptyState from '../ui/EmptyState.vue';
 import { toast } from '../ui/toast.js';
@@ -22,7 +23,7 @@ const orders = ref([]);
 const events = ref([]);
 const meta = ref({ current_page: 1, last_page: 1, total: 0 });
 
-const filters = reactive({ search: '', status: '', event_id: '', page: 1 });
+const filters = reactive({ search: '', status: '', event_id: '', payment_method: '', page: 1 });
 const loading = ref(true);
 const error = ref('');
 
@@ -44,6 +45,7 @@ async function load() {
             search: filters.search || undefined,
             status: filters.status || undefined,
             event_id: filters.event_id || undefined,
+            payment_method: filters.payment_method || undefined,
             page: filters.page,
         });
 
@@ -196,7 +198,7 @@ watch(() => filters.search, () => {
     }, 350);
 });
 
-watch([() => filters.status, () => filters.event_id], () => {
+watch([() => filters.status, () => filters.event_id, () => filters.payment_method], () => {
     filters.page = 1;
     load();
 });
@@ -233,7 +235,7 @@ onBeforeUnmount(() => {
 
         <div class="et-surface-raised p-3 mb-3">
             <div class="row g-2">
-                <div class="col-12 col-lg-5">
+                <div class="col-12 col-lg-4">
                     <label class="form-label" for="search">Buscar</label>
                     <input
                         id="search"
@@ -244,7 +246,7 @@ onBeforeUnmount(() => {
                     >
                 </div>
 
-                <div class="col-6 col-lg-3">
+                <div class="col-6 col-lg-2">
                     <label class="form-label" for="status">Estado</label>
                     <select id="status" v-model="filters.status" class="form-select">
                         <option v-for="option in STATUSES" :key="option.value" :value="option.value">
@@ -253,12 +255,21 @@ onBeforeUnmount(() => {
                     </select>
                 </div>
 
-                <div class="col-6 col-lg-4">
+                <div class="col-6 col-lg-3">
                     <label class="form-label" for="event">Evento</label>
                     <select id="event" v-model="filters.event_id" class="form-select">
                         <option value="">Todos</option>
                         <option v-for="event in events" :key="event.id" :value="event.id">
                             {{ event.name }}
+                        </option>
+                    </select>
+                </div>
+
+                <div class="col-12 col-lg-3">
+                    <label class="form-label" for="payment-method">Medio de pago</label>
+                    <select id="payment-method" v-model="filters.payment_method" class="form-select">
+                        <option v-for="option in PAYMENT_FILTERS" :key="option.value" :value="option.value">
+                            {{ option.label }}
                         </option>
                     </select>
                 </div>

@@ -18,6 +18,7 @@ import {
     Legend,
 } from 'chart.js';
 import api, { toError } from '../api.js';
+import { PAYMENT_FILTERS } from '../paymentMethods.js';
 import StatCard from '../ui/StatCard.vue';
 import EmptyState from '../ui/EmptyState.vue';
 
@@ -26,6 +27,7 @@ ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 const data = ref(null);
 const events = ref([]);
 const eventId = ref('');
+const paymentMethod = ref('');
 const loading = ref(true);
 const error = ref('');
 
@@ -49,6 +51,7 @@ async function load() {
     try {
         const { data: payload } = await api.get('tickets-admin/statistics', {
             event_id: eventId.value || undefined,
+            payment_method: paymentMethod.value || undefined,
         });
 
         data.value = payload;
@@ -78,7 +81,17 @@ function applyEventFilter() {
 function exportCsv() {
     // Descarga directa: es la unica forma de respects el Content-Disposition
     // del streaming sin traer el CSV entero a memoria en el navegador.
-    const query = eventId.value ? `?event_id=${encodeURIComponent(eventId.value)}` : '';
+    const params = new URLSearchParams();
+
+    if (eventId.value) {
+        params.set('event_id', eventId.value);
+    }
+
+    if (paymentMethod.value) {
+        params.set('payment_method', paymentMethod.value);
+    }
+
+    const query = params.toString() ? `?${params.toString()}` : '';
 
     window.location.href = `/tickets-admin/statistics/export${query}`;
 }
@@ -175,6 +188,18 @@ onMounted(async () => {
                     <option value="">Todos los eventos</option>
                     <option v-for="event in events" :key="event.id" :value="event.id">
                         {{ event.name }}
+                    </option>
+                </select>
+
+                <select
+                    v-model="paymentMethod"
+                    class="form-select"
+                    style="max-width: 220px"
+                    title="Filtrar por medio de pago"
+                    @change="applyEventFilter"
+                >
+                    <option v-for="option in PAYMENT_FILTERS" :key="option.value" :value="option.value">
+                        {{ option.label }}
                     </option>
                 </select>
 

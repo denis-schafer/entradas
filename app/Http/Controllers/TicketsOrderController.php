@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\OrderPaymentService;
 use App\Support\MercadoPagoToken;
+use App\Support\PaymentMethodFilter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -40,6 +41,8 @@ class TicketsOrderController extends Controller
         if ($eventId = $request->query('event_id')) {
             $query->where('o.event_id', (int) $eventId);
         }
+
+        PaymentMethodFilter::apply($query, $request->query('payment_method'), 'o.payment_method', 'o.payment_variant');
 
         $orders = $query->paginate(20);
 

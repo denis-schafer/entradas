@@ -14,6 +14,7 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import api, { toError } from '../api.js';
 import { listen } from '../realtime.js';
+import { PAYMENT_FILTERS } from '../paymentMethods.js';
 import EmptyState from '../ui/EmptyState.vue';
 import { toast } from '../ui/toast.js';
 
@@ -59,6 +60,7 @@ const sales = ref([]);
 const loadingSales = ref(false);
 const salesLoaded = ref(false);
 const salesError = ref('');
+const salesPaymentMethod = ref('');
 
 function entryLinkFor(token) {
     return token ? `${window.location.origin}/e/${token}` : '';
@@ -195,7 +197,9 @@ async function loadSales() {
     salesError.value = '';
 
     try {
-        const { data } = await api.get('tickets-admin/pos/sales');
+        const { data } = await api.get('tickets-admin/pos/sales', {
+            payment_method: salesPaymentMethod.value || undefined,
+        });
         sales.value = data || [];
         salesLoaded.value = true;
     } catch (err) {
@@ -780,6 +784,20 @@ onUnmounted(() => {
 
         <!-- Historial de ventas del vendedor -->
         <section v-if="tab === 'sales'">
+            <div class="d-flex justify-content-end mb-2">
+                <select
+                    v-model="salesPaymentMethod"
+                    class="form-select"
+                    style="max-width: 220px"
+                    title="Filtrar por medio de pago"
+                    @change="loadSales"
+                >
+                    <option v-for="option in PAYMENT_FILTERS" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                    </option>
+                </select>
+            </div>
+
             <p v-if="salesError" class="small" style="color: var(--et-danger)">
                 <i class="bi bi-exclamation-circle me-1"></i>{{ salesError }}
             </p>
