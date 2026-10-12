@@ -6,6 +6,7 @@ import { initRealtime } from './realtime.js';
 import { startSessionWatch } from './sessionWatch.js';
 import { go, useRoute, defineRoutes, readPendingOrder } from './shell/router.js';
 import ToastHost from './ui/ToastHost.vue';
+import ConfirmDialog from './ui/ConfirmDialog.vue';
 import SessionCountdownModal from './ui/SessionCountdownModal.vue';
 import AuthScreen from './ui/AuthScreen.vue';
 import RegisterView from './portal/RegisterView.vue';
@@ -30,7 +31,7 @@ import AdminShell from './shell/AdminShell.vue';
  */
 const Root = defineComponent({
     name: 'Root',
-    components: { PortalShell, AdminShell, ToastHost, SessionCountdownModal, AuthScreen, RegisterView },
+    components: { PortalShell, AdminShell, ToastHost, ConfirmDialog, SessionCountdownModal, AuthScreen, RegisterView },
     setup() {
         const loading = ref(true);
         const user = ref(null);
@@ -308,6 +309,7 @@ const anonView = computed(() => {
                             onNavigate: this.handleNavigate,
                         }),
                 h(ToastHost),
+                h(ConfirmDialog),
             ]);
         }
 
@@ -331,6 +333,7 @@ const anonView = computed(() => {
                     onNavigate: this.handleNavigate,
                 }),
             h(ToastHost),
+            h(ConfirmDialog),
             h(SessionCountdownModal, { onLogout: this.handleSignOut }),
         ]);
     },

@@ -11,6 +11,7 @@
 import { ref, computed, onMounted } from 'vue';
 import api, { toError } from '../api.js';
 import { toast } from '../ui/toast.js';
+import { confirm } from '../ui/confirm.js';
 
 const configs = ref([]);
 const drafts = ref({});
@@ -233,7 +234,14 @@ async function saveSecret(name) {
 }
 
 async function clearSecret(name) {
-    if (!confirm('Quitar el valor guardado?')) {
+    const confirmed = await confirm({
+        title: 'Quitar valor',
+        message: 'Quitar el valor guardado?',
+        confirmLabel: 'Quitar',
+        tone: 'danger',
+    });
+
+    if (!confirmed) {
         return;
     }
 

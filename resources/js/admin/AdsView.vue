@@ -12,6 +12,7 @@ import api, { toError } from '../api.js';
 import EmptyState from '../ui/EmptyState.vue';
 import ImageFlyer from '../ui/ImageFlyer.vue';
 import { toast } from '../ui/toast.js';
+import { confirm } from '../ui/confirm.js';
 
 const ads = ref([]);
 const events = ref([]);
@@ -220,7 +221,14 @@ async function toggleEnable(ad) {
 }
 
 async function destroy(ad) {
-    if (!window.confirm(`Eliminar la publicidad "${ad.name}"?`)) {
+    const confirmed = await confirm({
+        title: 'Eliminar publicidad',
+        message: `Eliminar la publicidad "${ad.name}"?`,
+        confirmLabel: 'Eliminar',
+        tone: 'danger',
+    });
+
+    if (!confirmed) {
         return;
     }
 

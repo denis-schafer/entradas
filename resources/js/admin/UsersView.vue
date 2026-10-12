@@ -15,6 +15,7 @@ import api, { toError } from '../api.js';
 import EmptyState from '../ui/EmptyState.vue';
 import MultiSelectFilter from '../ui/MultiSelectFilter.vue';
 import { toast } from '../ui/toast.js';
+import { confirm } from '../ui/confirm.js';
 
 const props = defineProps({ user: { type: Object, required: true } });
 
@@ -355,7 +356,12 @@ async function toggleEnable(user) {
 }
 
 async function destroy(user) {
-    const confirmed = window.confirm(`Eliminar a ${user.name}? No se puede deshacer.`);
+    const confirmed = await confirm({
+        title: 'Eliminar usuario',
+        message: `Eliminar a ${user.name}? No se puede deshacer.`,
+        confirmLabel: 'Eliminar',
+        tone: 'danger',
+    });
 
     if (!confirmed) {
         return;
@@ -372,7 +378,11 @@ async function destroy(user) {
 }
 
 async function resetPassword(user) {
-    const confirmed = window.confirm(`Resetear la contrasena de ${user.name}?`);
+    const confirmed = await confirm({
+        title: 'Resetear contrasena',
+        message: `Se generara una contrasena nueva para ${user.name}.`,
+        confirmLabel: 'Resetear',
+    });
 
     if (!confirmed) {
         return;
