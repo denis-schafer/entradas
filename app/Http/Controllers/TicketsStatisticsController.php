@@ -111,8 +111,10 @@ class TicketsStatisticsController extends Controller
         $query = DB::table('tickets_orders as o')
             ->leftJoin('tickets_events as e', 'o.event_id', '=', 'e.id')
             ->select([
-                'o.id', 'o.public_token', 'o.event_id', 'e.name as event_name',
+                'o.id', 'o.public_token', 'o.event_id',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
                 'o.buyer_name', 'o.buyer_email', 'o.buyer_dni', 'o.buyer_phone',
+                'o.seller_name',
                 'o.subtotal', 'o.total', 'o.payment_mode', 'o.installment_count',
                 'o.payment_method', 'o.payment_variant',
                 'o.status', 'o.payment_external_id', 'o.payment_amount',
@@ -141,7 +143,7 @@ class TicketsStatisticsController extends Controller
             fwrite($out, "\xEF\xBB\xBF");
 
             fputcsv($out, [
-                'ID', 'Token', 'Evento', 'Comprador', 'Email', 'DNI', 'Telefono',
+                'ID', 'Token', 'Evento', 'Comprador', 'Email', 'DNI', 'Telefono', 'Vendedor',
                 'Subtotal', 'Total', 'Modo de pago', 'Medio de pago', 'Modalidad',
                 'Cuotas', 'Estado', 'MP Payment ID', 'MP Neto', 'Creada', 'Pagada',
             ]);
@@ -155,7 +157,7 @@ class TicketsStatisticsController extends Controller
 
                 fputcsv($out, [
                     $o->id, $o->public_token, $o->event_name, $o->buyer_name, $o->buyer_email,
-                    $o->buyer_dni, $o->buyer_phone, $o->subtotal, $o->total,
+                    $o->buyer_dni, $o->buyer_phone, $o->seller_name, $o->subtotal, $o->total,
                     $o->payment_mode, $method, $o->payment_variant ?: '',
                     $o->installment_count, $o->status,
                     $o->payment_external_id, $o->payment_amount, $o->created_at, $o->paid_at,

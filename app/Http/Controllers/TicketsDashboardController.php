@@ -40,9 +40,9 @@ class TicketsDashboardController extends Controller
         $recentOrders = (clone $orders)
             ->leftJoin('tickets_events as e', 'o.event_id', '=', 'e.id')
             ->select([
-                'o.id', 'o.buyer_name', 'o.total', 'o.status',
+                'o.id', 'o.buyer_name', 'o.seller_name', 'o.total', 'o.status',
                 'o.payment_mode', 'o.installment_count', 'o.created_at', 'o.paid_at',
-                'o.event_id', 'e.name as event_name',
+                'o.event_id', DB::raw('COALESCE(o.event_name, e.name) as event_name'),
             ])
             ->orderByDesc('o.id')
             ->limit(10)

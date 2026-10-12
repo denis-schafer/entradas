@@ -178,7 +178,10 @@ class TicketPortalOrderController extends Controller
                 't.wristband_given', 't.wristband_color',
                 'tt.name as type_name', 'tt.wristband_color as type_wristband_color',
                 'tt.wristband_label', 'tt.image_path as type_image_path',
-                'e.name as event_name', 'e.starts_at', 'e.location', 'e.cover_image as event_cover',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
+                DB::raw('COALESCE(o.event_starts_at, e.starts_at) as starts_at'),
+                DB::raw('COALESCE(o.event_location, e.location) as location'),
+                'e.cover_image as event_cover',
                 'o.id as order_id', 'o.public_token as public_token', 'o.status as order_status', 'o.paid_at',
             ])
             ->orderByDesc('t.id')
@@ -203,7 +206,9 @@ class TicketPortalOrderController extends Controller
                 'o.id', 'o.public_token', 'o.event_id', 'o.total', 'o.status',
                 'o.payment_mode', 'o.installment_count',
                 'o.payment_external_id', 'o.created_at', 'o.paid_at',
-                'e.name as event_name', 'e.starts_at', 'e.cover_image as event_cover',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
+                DB::raw('COALESCE(o.event_starts_at, e.starts_at) as starts_at'),
+                'e.cover_image as event_cover',
             ])
             ->orderByDesc('o.id')
             ->get();

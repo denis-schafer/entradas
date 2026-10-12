@@ -21,9 +21,15 @@ use Illuminate\Validation\ValidationException;
 class TicketOrderService
 {
     /**
+     * Vendedor de las ventas que entran por el sistema (portal) y no por una
+     * caja: no hay operador, asi que se identifican como 'Online'.
+     */
+    public const ONLINE_SELLER = 'Online';
+
+    /**
      * @param  array{id?:int,name:string,email?:?string,dni?:?string,phone?:?string}  $buyer
      * @param  array<int,array{ticket_type_id:int,qty:int,unit_price:float}>  $items
-     * @param  array{payment_mode?:string,installment_count?:int,ip_address?:?string,user_agent?:?string}  $extra
+     * @param  array{payment_mode?:string,installment_count?:int,ip_address?:?string,user_agent?:?string,seller_user_id?:?int,seller_name?:?string}  $extra
      * @return array{id:int,public_token:string,total:float,ticket_count:int}
      */
     public function createOrder(object $event, array $buyer, array $items, array $extra = []): array
@@ -80,8 +86,15 @@ class TicketOrderService
             $id = DB::table('tickets_orders')->insertGetId([
                 'public_token' => $publicToken,
                 'event_id' => $event->id,
+                // Snapshot del evento: el nombre o la fecha pueden cambiar
+                // despues de vendida la entrada.
+                'event_name' => $event->name ?? null,
+                'event_starts_at' => $event->starts_at ?? null,
+                'event_location' => $event->location ?? null,
                 'buyer_user_id' => $buyer['id'] ?? null,
                 'seller_user_id' => $extra['seller_user_id'] ?? null,
+                // Snapshot: el nombre queda aunque despues se borre el usuario.
+                'seller_name' => $extra['seller_name'] ?? self::ONLINE_SELLER,
                 'buyer_name' => $buyer['name'],
                 'buyer_email' => (string) ($buyer['email'] ?? ''),
                 'buyer_dni' => $buyer['dni'] ?? null,

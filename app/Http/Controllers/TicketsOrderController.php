@@ -19,9 +19,10 @@ class TicketsOrderController extends Controller
             ->leftJoin('tickets_events as e', 'o.event_id', '=', 'e.id')
             ->select([
                 'o.id', 'o.public_token', 'o.buyer_name', 'o.buyer_email', 'o.buyer_dni',
+                'o.seller_name',
                 'o.total', 'o.status', 'o.payment_mode', 'o.installment_count',
                 'o.payment_external_id', 'o.paid_at', 'o.created_at', 'o.event_id',
-                'e.name as event_name',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
             ])
             ->orderByDesc('o.id');
 
@@ -62,9 +63,8 @@ class TicketsOrderController extends Controller
     public function show(int $id): JsonResponse
     {
         $order = DB::table('tickets_orders as o')
-            ->leftJoin('tickets_events as e', 'o.event_id', '=', 'e.id')
             ->where('o.id', $id)
-            ->select(['o.*', 'e.name as event_name', 'e.starts_at as event_starts_at', 'e.location as event_location'])
+            ->select('o.*')
             ->first();
 
         if (! $order) {

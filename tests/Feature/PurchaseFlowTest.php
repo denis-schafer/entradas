@@ -1251,6 +1251,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $this->assertSame('paid', $order->status);
         $this->assertSame('efectivo', $order->payment_method);
         $this->assertSame($seller->id, (int) $order->seller_user_id);
+        $this->assertSame($seller->name, $order->seller_name);
         $this->assertSame(10000, (int) $order->total);
 
         // El vendedor ve la venta en su historial, con el public_token para
@@ -1276,6 +1277,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $receipt = $this->getJson("/tickets-admin/pos/orders/{$orderId}/receipt");
         $receipt->assertOk();
         $this->assertCount(2, $receipt->json('tickets'));
+        $this->assertSame($seller->name, $receipt->json('order.seller_name'));
         $this->assertStringContainsString('/pos/tickets/', (string) ($receipt->json('tickets.0.qr_url') ?? ''));
 
         // Un vendedor sin el evento asignado no puede vender ni leer el recibo.
@@ -1297,6 +1299,99 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
      * contrasena inicial igual al DNI (la cambia el comprador en el portal).
      * El DNI se normaliza sin puntos ni guiones, y no se duplica.
      */
+    /**
+     * El vendedor se guarda con snapshot: el nombre queda en la orden aunque
+     * despues se elimine el usuario. Las ventas que entran por el portal (sin
+     * operador) quedan como 'Online'. El listado de ordenes y el CSV lo exponen.
+     */
+    public function test_la_venta_guarda_el_vendedor_y_su_nombre_sobrevive_al_borrado(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $buyer = $this->buyer();
+
+        // Venta de caja: el vendedor es el operador.
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+        ])->assertStatus(201);
+
+        $posOrderId = (int) $sale->json('order.id');
+        $this->assertSame($seller->name, DB::table('tickets_orders')->where('id', $posOrderId)->value('seller_name'));
+
+        // Venta del portal: entra por el sistema, sin operador.
+        $onlineBuyer = $this->buyer(['email' => 'online@test.local', 'dni' => '20111222']);
+        $online = $this->actingAs($onlineBuyer)->postJson('/tickets-portal/api/orders', [
+            'event_id' => $eventId,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+        ])->assertCreated();
+
+        $onlineOrderId = (int) $online->json('order_id');
+        $this->assertSame('Online', DB::table('tickets_orders')->where('id', $onlineOrderId)->value('seller_name'));
+
+        // Se elimina al vendedor: la orden conserva el nombre y la venta no se toca.
+        $this->actingAs($admin)->deleteJson("/tickets-admin/users/{$seller->id}")->assertOk();
+
+        $posOrder = DB::table('tickets_orders')->where('id', $posOrderId)->first();
+        $this->assertNull($posOrder->seller_user_id);
+        $this->assertSame($seller->name, $posOrder->seller_name);
+        $this->assertSame('paid', $posOrder->status);
+
+        // El listado de ordenes muestra el vendedor congelado y el 'Online'.
+        $orders = collect($this->actingAs($admin)->getJson('/tickets-admin/orders')->json('data'))
+            ->keyBy('id');
+
+        $this->assertSame($seller->name, $orders[$posOrderId]['seller_name']);
+        $this->assertSame('Online', $orders[$onlineOrderId]['seller_name']);
+    }
+
+    /**
+     * La orden congela los datos del evento (nombre, fecha, lugar). Editar el
+     * evento despues no cambia lo que ya se vendio: el listado y el detalle
+     * siguen mostrando el evento tal como era al momento de la compra.
+     */
+    public function test_la_orden_congela_los_datos_del_evento(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $event = DB::table('tickets_events')->where('id', $eventId)->first();
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $buyer = $this->buyer();
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+        ])->assertStatus(201);
+
+        $orderId = (int) $sale->json('order.id');
+        $snapshot = DB::table('tickets_orders')->where('id', $orderId)->first();
+
+        $this->assertSame($event->name, $snapshot->event_name);
+        $this->assertSame($event->starts_at, $snapshot->event_starts_at);
+        $this->assertSame($event->location, $snapshot->event_location);
+
+        // Se edita el evento: nombre, fecha y lugar.
+        $this->actingAs($admin)->putJson("/tickets-admin/events/{$eventId}", [
+            'name' => 'Gran Festival (renombrado)',
+            'location' => 'Predio Nuevo',
+        ])->assertOk();
+
+        // La orden sigue mostrando el evento original, no el editado.
+        $detail = $this->actingAs($admin)->getJson("/tickets-admin/orders/{$orderId}")->assertOk();
+        $this->assertSame($event->name, $detail->json('event_name'));
+        $this->assertSame('Predio 1', $detail->json('event_location'));
+        $this->assertSame($event->starts_at, $detail->json('event_starts_at'));
+
+        $listed = collect($this->actingAs($admin)->getJson('/tickets-admin/orders')->json('data'))
+            ->keyBy('id');
+        $this->assertSame($event->name, $listed[$orderId]['event_name']);
+    }
+
     public function test_el_pos_alta_un_comprador_con_contrasena_igual_al_dni(): void
     {
         $seller = $this->seller();

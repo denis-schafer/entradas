@@ -239,6 +239,7 @@ onBeforeUnmount(() => {
                                     <tr>
                                         <th>Orden</th>
                                         <th>Comprador</th>
+                                        <th>Vendedor</th>
                                         <th>Estado</th>
                                         <th class="text-end">Total</th>
                                     </tr>
@@ -260,6 +261,7 @@ onBeforeUnmount(() => {
                                                 {{ order.event_name }}
                                             </div>
                                         </td>
+                                        <td class="small">{{ order.seller_name || 'Online' }}</td>
                                         <td><StatusBadge :status="order.status" /></td>
                                         <td class="text-end numeric fw-semibold">{{ money(order.total) }}</td>
                                     </tr>

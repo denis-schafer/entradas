@@ -297,6 +297,7 @@ onBeforeUnmount(() => {
                     <tr>
                         <th>Orden</th>
                         <th>Comprador</th>
+                        <th>Vendedor</th>
                         <th>Evento</th>
                         <th>Pago</th>
                         <th>Estado</th>
@@ -317,6 +318,7 @@ onBeforeUnmount(() => {
                                 <span v-if="order.buyer_dni" class="numeric"> · {{ order.buyer_dni }}</span>
                             </div>
                         </td>
+                        <td class="small">{{ order.seller_name || 'Online' }}</td>
                         <td class="small">
                             {{ order.event_name || '—' }}
                             <div class="text-faint numeric">{{ order.ticket_count }} entradas</div>
@@ -377,6 +379,9 @@ onBeforeUnmount(() => {
                     <dl class="detail-list">
                         <dt>Comprador</dt>
                         <dd>{{ detail.buyer_name }}</dd>
+
+                        <dt>Vendedor</dt>
+                        <dd>{{ detail.seller_name || 'Online' }}</dd>
 
                         <dt>Email</dt>
                         <dd>{{ detail.buyer_email || '—' }}</dd>

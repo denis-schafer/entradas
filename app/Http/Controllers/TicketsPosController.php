@@ -217,6 +217,7 @@ class TicketsPosController extends Controller
             'payment_mode' => 'single',
             'installment_count' => 1,
             'seller_user_id' => $actor?->id,
+            'seller_name' => $actor?->name,
             'ip_address' => $request->ip(),
             'user_agent' => substr((string) $request->userAgent(), 0, 500),
         ]);
@@ -364,8 +365,8 @@ class TicketsPosController extends Controller
             ->orderByDesc('o.id')
             ->select([
                 'o.id', 'o.total', 'o.status', 'o.created_at', 'o.paid_at',
-                'o.payment_method', 'o.buyer_name', 'o.buyer_dni', 'o.public_token',
-                'e.name as event_name',
+                'o.payment_method', 'o.seller_name', 'o.buyer_name', 'o.buyer_dni', 'o.public_token',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
                 DB::raw('(SELECT COUNT(*) FROM tickets_tickets t WHERE t.order_id = o.id) as ticket_count'),
             ]);
 
@@ -435,8 +436,11 @@ class TicketsPosController extends Controller
                 'o.id', 'o.public_token', 'o.total', 'o.subtotal', 'o.status',
                 'o.payment_method', 'o.paid_at', 'o.created_at',
                 'o.buyer_name', 'o.buyer_dni', 'o.buyer_phone', 'o.buyer_email',
-                'e.id as event_id', 'e.name as event_name', 'e.starts_at', 'e.location',
-                's.name as seller_name',
+                'o.event_id',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
+                DB::raw('COALESCE(o.event_starts_at, e.starts_at) as starts_at'),
+                DB::raw('COALESCE(o.event_location, e.location) as location'),
+                DB::raw('COALESCE(o.seller_name, s.name) as seller_name'),
             ])
             ->first();
 

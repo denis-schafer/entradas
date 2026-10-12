@@ -20,7 +20,7 @@ class TicketsTicketController extends Controller
                 't.id', 't.uuid', 't.status', 't.used_at', 't.wristband_given', 't.wristband_color',
                 't.created_at', 't.event_id', 't.ticket_type_id', 't.order_id',
                 'tt.name as type_name',
-                'e.name as event_name',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
                 'o.buyer_name', 'o.buyer_email', 'o.status as order_status',
             ])
             ->orderByDesc('t.id');
@@ -65,7 +65,7 @@ class TicketsTicketController extends Controller
             ->select([
                 't.*',
                 'tt.name as type_name', 'tt.wristband_color', 'tt.wristband_label',
-                'e.name as event_name',
+                DB::raw('COALESCE(o.event_name, e.name) as event_name'),
                 'o.buyer_name', 'o.buyer_email', 'o.buyer_dni', 'o.buyer_phone',
             ])
             ->first();
