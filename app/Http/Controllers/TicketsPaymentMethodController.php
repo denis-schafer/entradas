@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\OrderPaymentService;
+use App\Services\Payments\EventPaymentMethods;
 use App\Services\Payments\PaymentGateway;
 use App\Services\Payments\PaymentGatewayRegistry;
 use Illuminate\Http\JsonResponse;
@@ -70,6 +71,31 @@ class TicketsPaymentMethodController extends Controller
         }
 
         return response()->json(['methods' => $result]);
+    }
+
+    /**
+     * Medios asignables a un operador para un conjunto de eventos. Lo usa el
+     * alta/edicion de usuarios para ofrecer solo lo que el evento habilita. El
+     * administrativo solo puede consultar sobre sus propios eventos.
+     */
+    public function available(Request $request): JsonResponse
+    {
+        $eventIds = $request->input('event_ids', []);
+
+        if (is_string($eventIds)) {
+            $eventIds = array_filter(explode(',', $eventIds));
+        }
+
+        $eventIds = array_map('intval', (array) $eventIds);
+        $actor = $request->user();
+
+        if ($actor && $actor->isAdministrativo()) {
+            $eventIds = array_intersect($eventIds, $actor->assignedEventIds());
+        }
+
+        return response()->json([
+            'methods' => EventPaymentMethods::forEvents($eventIds),
+        ]);
     }
 
     /**

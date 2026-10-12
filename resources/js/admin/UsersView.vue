@@ -28,6 +28,10 @@ const isAdministrativo = computed(() => props.user?.role === 'administrativo');
 // Roles que operan acotados a eventos asignados (el admin ve todo).
 const SCOPED_ROLES = ['cajero', 'vendedor', 'administrativo'];
 
+// Roles que venden desde el POS y por lo tanto pueden tener medios de pago
+// asignados (el efectivo no se elige: se cobra siempre).
+const SELLER_ROLES = ['vendedor', 'administrativo'];
+
 const ROLE_LABELS = {
     admin: 'Administrador',
     cajero: 'Cajero',
@@ -37,6 +41,10 @@ const ROLE_LABELS = {
 
 function usesEventScope(role) {
     return SCOPED_ROLES.includes(role);
+}
+
+function usesPaymentScope(role) {
+    return SELLER_ROLES.includes(role);
 }
 
 function roleLabel(role) {
@@ -52,6 +60,11 @@ const meta = reactive({ admins: page(1, 1, 0), buyers: page(1, 1, 0) });
 // Todos los eventos, para el selector de eventos asignados del form. Solo
 // lo usa el admin, que ve los eventos sin limite: el cajero no llega aca.
 const events = ref([]);
+
+// Medios de pago asignables segun los eventos elegidos en el form. Se recarga
+// cada vez que cambian los eventos del editor.
+const availablePaymentMethods = ref([]);
+const loadingMethods = ref(false);
 
 const search = ref('');
 const loading = ref(true);
@@ -160,6 +173,36 @@ async function loadEvents() {
     }
 }
 
+/**
+ * Medios de pago que se pueden asignar segun los eventos elegidos: la union de
+ * lo que cada evento habilita. Al recortar la seleccion existente evita dejar
+ * asignado un medio que el evento ya no ofrece.
+ */
+async function loadAvailablePaymentMethods() {
+    if (!editor.value || !usesPaymentScope(editor.value.role)) {
+        availablePaymentMethods.value = [];
+        return;
+    }
+
+    loadingMethods.value = true;
+
+    try {
+        const { data } = await api.get('tickets-admin/payment-methods/available', {
+            event_ids: (editor.value.event_ids || []).join(','),
+        });
+
+        availablePaymentMethods.value = data.methods || [];
+
+        const ids = availablePaymentMethods.value.map((method) => method.id);
+
+        editor.value.payment_method_ids = (editor.value.payment_method_ids || []).filter((id) => ids.includes(id));
+    } catch (err) {
+        availablePaymentMethods.value = [];
+    } finally {
+        loadingMethods.value = false;
+    }
+}
+
 function switchTab(next) {
     tab.value = next;
     search.value = '';
@@ -179,6 +222,7 @@ function openCreate() {
         role: isAdministrativo.value ? 'vendedor' : 'admin',
         enable: true,
         event_ids: [],
+        payment_method_ids: [],
         mode: 'create',
     };
 }
@@ -203,6 +247,7 @@ function openEdit(user) {
         // Eventos asignados del operador. El admin no usa esto (ve todos los
         // eventos igual), pero se precarga igual de la fila.
         event_ids: (user.events || []).map((event) => event.id),
+        payment_method_ids: user.payment_method_ids || [],
     };
 }
 
@@ -220,6 +265,14 @@ function eventIdsForSubmit() {
     return usesEventScope(editor.value.role) ? editor.value.event_ids : [];
 }
 
+/*
+| Los medios de pago solo aplican a los roles que venden. Al resto se le manda
+| lista vacia para que el backend limpie cualquier fila vieja.
+*/
+function paymentMethodIdsForSubmit() {
+    return usesPaymentScope(editor.value.role) ? editor.value.payment_method_ids || [] : [];
+}
+
 async function submitEditor() {
     editorBusy.value = true;
     editorError.value = '';
@@ -235,6 +288,7 @@ async function submitEditor() {
                 role: editor.value.role,
                 enable: editor.value.enable,
                 event_ids: eventIdsForSubmit(),
+                payment_method_ids: paymentMethodIdsForSubmit(),
             });
 
             toast(`${roleLabel(editor.value.role)} creado`, 'success');
@@ -268,6 +322,7 @@ async function submitEditor() {
                 role: editor.value.role,
                 enable: editor.value.enable,
                 event_ids: eventIdsForSubmit(),
+                payment_method_ids: paymentMethodIdsForSubmit(),
                 ...passwordFields,
             });
 
@@ -348,6 +403,16 @@ watch(search, () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(load, 350);
 });
+
+/*
+| Al abrir el editor o cambiar rol/eventos se recargan los medios asignables:
+| dependen de los eventos elegidos y del rol (solo venden vendedor y
+| administrativo).
+*/
+watch(
+    () => (editor.value ? [editor.value.role, editor.value.event_ids.join(',')] : null),
+    () => loadAvailablePaymentMethods(),
+);
 
 onMounted(() => {
     load();
@@ -600,12 +665,12 @@ onMounted(() => {
                     <div class="mb-3">
                         <label class="form-label" for="role">Rol</label>
                         <select v-if="isAdministrativo" id="role" class="form-select" disabled>
-                            <option value="vendedor">Vendedor — solo vende en efectivo desde el POS</option>
+                            <option value="vendedor">Vendedor — vende desde el POS</option>
                         </select>
                         <select v-else id="role" v-model="editor.role" class="form-select">
                             <option value="admin">Administrador — acceso total al panel</option>
                             <option value="administrativo">Administrativo — estadisticas de su evento, alta de vendedores y venta</option>
-                            <option value="vendedor">Vendedor — solo vende en efectivo desde el POS</option>
+                            <option value="vendedor">Vendedor — vende desde el POS</option>
                             <option value="cajero">Cajero — solo escanear entradas y dar pulseras</option>
                         </select>
                         <div class="form-text">
@@ -627,6 +692,21 @@ onMounted(() => {
                         <div class="form-text">
                             Solo opera sobre los eventos elegidos. Sin ninguno asignado no ve
                             ni puede vender/escanear ninguno hasta que se le asigne.
+                        </div>
+                    </div>
+
+                    <div v-if="usesPaymentScope(editor.role)" class="mb-3">
+                        <label class="form-label">Medios de pago para vender</label>
+                        <MultiSelectFilter
+                            v-model="editor.payment_method_ids"
+                            :items="availablePaymentMethods"
+                            placeholder="Buscar medio de pago..."
+                            none-text="Solo efectivo"
+                            empty-text="Elegi al menos un evento para ver los medios disponibles"
+                        />
+                        <div class="form-text">
+                            El efectivo se cobra siempre. Los medios elegidos tienen que estar
+                            habilitados en los eventos asignados.
                         </div>
                     </div>
 

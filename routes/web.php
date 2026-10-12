@@ -183,18 +183,29 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             Route::put('users/{id}', [TicketsUserController::class, 'update'])->whereNumber('id')->name('users.update');
             Route::delete('users/{id}', [TicketsUserController::class, 'destroy'])->whereNumber('id')->name('users.destroy');
             Route::post('users/{id}/reset-password', [TicketsUserController::class, 'resetPassword'])->whereNumber('id')->name('users.reset');
+
+            /*
+            | Medios de pago asignables a un operador (vendedor/administrativo)
+            | segun los eventos elegidos. Vive aca y no en el grupo de staff
+            | porque el administrativo tambien da de alta vendedores.
+            */
+            Route::get('payment-methods/available', [TicketsPaymentMethodController::class, 'available'])->name('payment-methods.available');
         });
 
         // ------------------------------------------------------------- POS
-        // Venta en efectivo en la caja. Admin, administrativo y vendedor.
+        // Venta en la caja: efectivo o link de pago. Admin, administrativo y
+        // vendedor.
         Route::middleware('tickets.pos')->group(function () {
             Route::get('pos/events', [TicketsPosController::class, 'events'])->name('pos.events');
             Route::get('pos/events/{eventId}/ticket-types', [TicketsPosController::class, 'ticketTypes'])->whereNumber('eventId')->name('pos.ticket-types');
+            Route::get('pos/events/{eventId}/payment-methods', [TicketsPosController::class, 'paymentMethods'])->whereNumber('eventId')->name('pos.payment-methods');
             Route::get('pos/buyers', [TicketsPosController::class, 'buyers'])->name('pos.buyers');
             Route::post('pos/buyers', [TicketsPosController::class, 'storeBuyer'])->name('pos.buyers.store');
             Route::get('pos/sales', [TicketsPosController::class, 'sales'])->name('pos.sales.index');
             Route::post('pos/sales', [TicketsPosController::class, 'sell'])->name('pos.sales');
             Route::get('pos/orders/{id}/receipt', [TicketsPosController::class, 'receipt'])->whereNumber('id')->name('pos.receipt');
+            Route::get('pos/orders/{id}/payment-link', [TicketsPosController::class, 'paymentLink'])->whereNumber('id')->name('pos.payment-link');
+            Route::get('pos/orders/{id}/multipago-qr.svg', [TicketsPosController::class, 'multipagoQrSvg'])->whereNumber('id')->name('pos.multipago-qr');
             Route::get('pos/tickets/{id}/qr.svg', [TicketsPosController::class, 'ticketQr'])->whereNumber('id')->name('pos.ticket-qr');
         });
     });

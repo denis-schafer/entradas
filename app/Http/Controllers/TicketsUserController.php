@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\Payments\EventPaymentMethods;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -55,9 +56,11 @@ class TicketsUserController extends Controller
         | pueda mostrar de cuantos eventos se trata cada cajero.
         */
         $assigned = $this->eventsByUser($users->pluck('id')->all());
+        $paymentMethods = $this->paymentMethodsByUser($users->pluck('id')->all());
 
         foreach ($users->items() as $user) {
             $user->events = $assigned[$user->id] ?? [];
+            $user->payment_method_ids = $paymentMethods[$user->id] ?? [];
         }
 
         return response()->json($users);
@@ -93,10 +96,18 @@ class TicketsUserController extends Controller
             */
             'event_ids' => 'sometimes|array',
             'event_ids.*' => 'integer|exists:tickets_events,id',
+            /*
+            | Medios de pago que este operador puede cobrar desde el POS (ademas
+            | del efectivo, que se cobra siempre). Lista vacia = solo efectivo.
+            | Solo aplica a los roles que venden (vendedor y administrativo).
+            */
+            'payment_method_ids' => 'sometimes|array',
+            'payment_method_ids.*' => 'integer|exists:tickets_payment_methods,id',
         ]);
 
         $role = $validated['role'] ?? User::ROLE_ADMIN;
         $eventIds = $validated['event_ids'] ?? [];
+        $paymentMethodIds = $validated['payment_method_ids'] ?? [];
 
         /*
         | Un administrativo solo puede dar de alta vendedores, y solo en sus
@@ -130,7 +141,17 @@ class TicketsUserController extends Controller
         | (cajero, vendedor, administrativo). Al admin se le deja la tabla
         | limpia para no arrastrar filas viejas.
         */
-        $this->syncEvents($id, $this->appliesEventScope($role) ? $eventIds : []);
+        $scopedEventIds = $this->appliesEventScope($role) ? $eventIds : [];
+        $this->syncEvents($id, $scopedEventIds);
+
+        /*
+        | Los medios de pago asignados no pueden salirse de lo que el evento
+        | habilita: la lista se recorta a la union de medios disponibles en los
+        | eventos del operador.
+        */
+        if ($this->appliesPaymentScope($role)) {
+            $this->syncPaymentMethods($id, $this->restrictPaymentMethodIds($paymentMethodIds, $scopedEventIds));
+        }
 
         return response()->json(['id' => $id, 'message' => 'Usuario creado'], 201);
     }
@@ -168,6 +189,8 @@ class TicketsUserController extends Controller
             'password' => 'sometimes|string|min:8|confirmed',
             'event_ids' => 'sometimes|array',
             'event_ids.*' => 'integer|exists:tickets_events,id',
+            'payment_method_ids' => 'sometimes|array',
+            'payment_method_ids.*' => 'integer|exists:tickets_payment_methods,id',
         ]);
 
         /*
@@ -223,6 +246,26 @@ class TicketsUserController extends Controller
 
         if (array_key_exists('event_ids', $validated)) {
             $this->syncEvents($id, $validated['event_ids']);
+        }
+
+        /*
+        | Los medios de pago asignados se recortan a lo disponible en los
+        | eventos efectivos del operador (los que acaba de tener tras un
+        | cambio de eventos). Al cambiar de rol a uno que no vende, se limpian.
+        */
+        if (array_key_exists('payment_method_ids', $validated)) {
+            $role = $user->roleName();
+
+            if ($this->appliesPaymentScope($role)) {
+                $events = DB::table('tickets_event_user')
+                    ->where('user_id', $id)
+                    ->pluck('event_id')
+                    ->all();
+
+                $this->syncPaymentMethods($id, $this->restrictPaymentMethodIds($validated['payment_method_ids'], $events));
+            } else {
+                $this->syncPaymentMethods($id, []);
+            }
         }
 
         return response()->json(['message' => 'Usuario actualizado']);
@@ -328,6 +371,37 @@ class TicketsUserController extends Controller
     }
 
     /**
+     * Reemplaza los medios de pago que un operador puede cobrar desde el POS.
+     * El efectivo no se guarda: se cobra siempre.
+     */
+    private function syncPaymentMethods(int $userId, array $methodIds): void
+    {
+        DB::table('tickets_user_payment_method')->where('user_id', $userId)->delete();
+
+        $now = now();
+
+        foreach (array_unique(array_map('intval', $methodIds)) as $methodId) {
+            DB::table('tickets_user_payment_method')->insert([
+                'user_id' => $userId,
+                'payment_method_id' => $methodId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+    }
+
+    /**
+     * Deja, de los medios pedidos, solo los que estan disponibles en el
+     * conjunto de eventos dado (lo que el evento habilita y tiene credenciales).
+     */
+    private function restrictPaymentMethodIds(array $methodIds, array $eventIds): array
+    {
+        $available = EventPaymentMethods::idsForEvents($eventIds);
+
+        return array_values(array_intersect(array_map('intval', $methodIds), $available));
+    }
+
+    /**
      * Eventos asignados, agrupados por usuario: [user_id => [{id, name}]].
      * Una sola query extra por pagina de listado.
      */
@@ -351,6 +425,41 @@ class TicketsUserController extends Controller
         }
 
         return $map;
+    }
+
+    /**
+     * Medios de pago asignados, agrupados por usuario: [user_id => [ids]].
+     * Una sola query extra por pagina de listado.
+     */
+    private function paymentMethodsByUser(array $userIds): array
+    {
+        if (! $userIds) {
+            return [];
+        }
+
+        $map = [];
+
+        $rows = DB::table('tickets_user_payment_method')
+            ->whereIn('user_id', $userIds)
+            ->orderBy('payment_method_id')
+            ->get(['user_id', 'payment_method_id']);
+
+        foreach ($rows as $row) {
+            $map[$row->user_id][] = (int) $row->payment_method_id;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Solo los roles que venden desde el POS llevan medios de pago asignados.
+     */
+    private function appliesPaymentScope(string $role): bool
+    {
+        return in_array($role, [
+            User::ROLE_SELLER,
+            User::ROLE_ADMINISTRATIVO,
+        ], true);
     }
 
     /**

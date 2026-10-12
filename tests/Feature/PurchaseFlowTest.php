@@ -1477,6 +1477,321 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         ])->assertCreated();
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Medios de pago en el POS
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * El POS ofrece los medios con los que ESTE operador puede cobrar: el
+     * efectivo va siempre; los demas solo si el evento los habilita y el
+     * usuario tiene el permiso. El administrador no se acota.
+     */
+    public function test_el_pos_ofrece_solo_los_medios_habilitados_para_el_operador(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $this->fakeMercadoPagoToken($eventId);
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $buyer = $this->buyer();
+
+        // El evento tiene MP habilitado, pero el vendedor no lo tiene asignado.
+        $this->actingAs($seller);
+
+        $methods = $this->getJson("/tickets-admin/pos/events/{$eventId}/payment-methods");
+        $methods->assertOk();
+        $this->assertSame(['efectivo'], array_column($methods->json('methods'), 'code'));
+
+        // Cobrar con un medio no habilitado se rechaza antes de tocar el stock.
+        $this->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'mercadopago',
+        ])->assertStatus(422);
+
+        // Con el permiso asignado, MP aparece junto al efectivo.
+        $mpId = (int) DB::table('tickets_payment_methods')->where('code', 'mercadopago')->value('id');
+        $this->allowPaymentMethod($seller, $mpId);
+
+        $methods = $this->getJson("/tickets-admin/pos/events/{$eventId}/payment-methods");
+        $this->assertSame(['efectivo', 'mercadopago'], array_column($methods->json('methods'), 'code'));
+
+        // El administrador ve todos los medios del evento, sin asignaciones.
+        $this->actingAs($admin);
+        $adminMethods = $this->getJson("/tickets-admin/pos/events/{$eventId}/payment-methods");
+        $this->assertSame(['efectivo', 'mercadopago'], array_column($adminMethods->json('methods'), 'code'));
+    }
+
+    /**
+     * Con MercadoPago, el vendedor no cierra la venta: emite la orden pendiente
+     * y le pasa el link de Checkout Pro al comprador. Cuando el webhook de MP
+     * acredita el pago, la orden se marca pagada (mismo camino que el portal).
+     */
+    public function test_el_pos_cobra_con_mercadopago_y_el_webhook_acredita(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $this->fakeMercadoPagoToken($eventId);
+        // Sin URL publica la preference se rechaza; en dev dejamos pasar la URL local.
+        config(['services.mercadopago.require_public_url' => false]);
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $mpId = (int) DB::table('tickets_payment_methods')->where('code', 'mercadopago')->value('id');
+        $this->allowPaymentMethod($seller, $mpId);
+        $buyer = $this->buyer();
+
+        Http::fake([
+            'api.mercadopago.com/checkout/preferences' => Http::response([
+                'id' => 'pref-pos-1',
+                'init_point' => 'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-pos-1',
+                'sandbox_init_point' => 'https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=pref-pos-1',
+            ]),
+        ]);
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'mercadopago',
+        ]);
+        $sale->assertStatus(201);
+
+        $orderId = $sale->json('order.id');
+        $order = DB::table('tickets_orders')->where('id', $orderId)->first();
+
+        // La orden queda pendiente, con el vendedor como responsable y el pref
+        // guardado para el reenvio idempotente.
+        $this->assertSame('pending', $order->status);
+        $this->assertSame('mercadopago', $order->payment_method);
+        $this->assertSame($seller->id, (int) $order->seller_user_id);
+        $this->assertSame('pref-pos-1', $order->payment_reference);
+
+        // El link viaja en la respuesta del POS.
+        $this->assertSame('mercadopago', $sale->json('payment.method'));
+        $this->assertStringContainsString('pref-pos-1', (string) $sale->json('payment.link'));
+
+        // El historial del vendedor muestra la venta pendiente con su token.
+        $sales = $this->getJson('/tickets-admin/pos/sales');
+        $sales->assertOk();
+        $this->assertSame('pending', $sales->json('0.status'));
+        $this->assertSame('mercadopago', $sales->json('0.payment_method'));
+
+        // El webhook de MP acredita la orden.
+        Http::fake([
+            'api.mercadopago.com/v1/payments/*' => Http::response([
+                'status' => 'approved',
+                'external_reference' => 'ENTRADAS-TICKET-'.$orderId,
+                'transaction_amount' => (float) $order->total,
+            ]),
+        ]);
+
+        $this->postJson("/tickets/mp/webhook/{$eventId}", [
+            'type' => 'payment',
+            'data' => ['id' => '555444333'],
+        ])->assertOk();
+
+        $this->assertSame('paid', DB::table('tickets_orders')->where('id', $orderId)->value('status'));
+    }
+
+    /**
+     * Con Multipago, el vendedor elige como cobrar (QR o boton de pago) y el
+     * POS devuelve el codigo PUM deterministico. El QR se sirve como SVG para
+     * mostrarlo en la caja, y reenviar el link recalcula el mismo codigo.
+     */
+    public function test_el_pos_cobra_con_multipago_y_genera_el_codigo_pum(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $multipagoId = $this->enableMultipago();
+
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $this->allowPaymentMethod($seller, $multipagoId);
+        $buyer = $this->buyer();
+
+        $this->actingAs($seller);
+
+        // Sin elegir variante, Multipago no sabe como cobrar.
+        $this->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'multipago',
+        ])->assertStatus(422);
+
+        $sale = $this->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+            'payment_method' => 'multipago',
+            'payment_method_variant' => 'qr',
+        ]);
+        $sale->assertStatus(201);
+
+        $orderId = $sale->json('order.id');
+        $order = DB::table('tickets_orders')->where('id', $orderId)->first();
+        $this->assertSame('pending', $order->status);
+        $this->assertSame('multipago', $order->payment_method);
+        $this->assertNotEmpty($order->payment_reference);
+
+        $this->assertSame('multipago', $sale->json('payment.method'));
+        $this->assertSame('qr', $sale->json('payment.variant'));
+        $this->assertStringContainsString(
+            'codigo_barra='.(string) $sale->json('payment.code'),
+            (string) $sale->json('payment.link')
+        );
+
+        // El QR del PUM se sirve como SVG para mostrarlo en la caja.
+        $qr = $this->get("/tickets-admin/pos/orders/{$orderId}/multipago-qr.svg");
+        $qr->assertOk();
+        $this->assertStringContainsString('image/svg+xml', $qr->headers->get('Content-Type'));
+
+        // Reenviar el link es idempotente: el PUM no cambia.
+        $link = $this->getJson("/tickets-admin/pos/orders/{$orderId}/payment-link");
+        $link->assertOk();
+        $this->assertSame($sale->json('payment.code'), $link->json('payment.code'));
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Asignacion de medios de pago a los operadores
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Los medios de pago que se le asignan a un vendedor se recortan a lo que
+     * sus eventos habilitan: no puede quedar habilitado para cobrar con algo
+     * que el evento no ofrece. Al sacarle el evento pierde el medio.
+     */
+    public function test_los_medios_de_pago_se_asignan_al_vendedor_acotados_al_evento(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+        $this->fakeMercadoPagoToken($eventId);
+
+        $mpId = (int) DB::table('tickets_payment_methods')->where('code', 'mercadopago')->value('id');
+        $multipagoId = (int) DB::table('tickets_payment_methods')->where('code', 'multipago')->value('id');
+
+        $created = $this->actingAs($admin)->postJson('/tickets-admin/users', [
+            'name' => 'Vendedor MP',
+            'email' => 'vendedor-mp@test.local',
+            'password' => 'secreto123',
+            'role' => User::ROLE_SELLER,
+            'event_ids' => [$eventId],
+            'payment_method_ids' => [$mpId, $multipagoId],
+        ]);
+        $created->assertCreated();
+
+        $seller = User::where('email', 'vendedor-mp@test.local')->first();
+
+        // Multipago no esta habilitado en el evento: se descarta. MP queda.
+        $this->assertSame([$mpId], $seller->paymentMethodIds());
+
+        // El listado lo devuelve para precargar el formulario de edicion.
+        $list = $this->getJson('/tickets-admin/users?search=vendedor-mp@test.local');
+        $list->assertOk();
+        $this->assertSame([$mpId], $list->json('data.0.payment_method_ids'));
+
+        // Sin eventos, no queda ningun medio disponible: se limpia.
+        $this->putJson("/tickets-admin/users/{$seller->id}", [
+            'event_ids' => [],
+            'payment_method_ids' => [$mpId],
+        ])->assertOk();
+
+        $this->assertSame([], $seller->fresh()->paymentMethodIds());
+    }
+
+    /**
+     * El administrativo tambien vende y da de alta vendedores, asi que maneja
+     * los medios de pago de SUS eventos: la consulta de disponibles y la
+     * asignacion quedan acotadas a su jurisdiccion.
+     */
+    public function test_el_administrativo_consulta_y_asigna_medios_de_sus_eventos(): void
+    {
+        [$admin, $eventId] = $this->publishEvent();
+        $this->fakeMercadoPagoToken($eventId);
+
+        $mpId = (int) DB::table('tickets_payment_methods')->where('code', 'mercadopago')->value('id');
+
+        $otherEventId = $this->actingAs($this->admin(['email' => 'otro-admin@test.local']))
+            ->postJson('/tickets-admin/events', [
+                'name' => 'Ajeno',
+                'starts_at' => now()->addWeeks(3)->toDateTimeString(),
+                'location' => 'Predio 3',
+                'capacity' => 10,
+                'status' => 'published',
+            ])->assertCreated()->json('id');
+
+        $administrativo = $this->administrativo();
+        $this->assignEvents($administrativo, [$eventId]);
+
+        $this->actingAs($administrativo);
+
+        // Los disponibles salen de sus eventos.
+        $available = $this->getJson("/tickets-admin/payment-methods/available?event_ids={$eventId}");
+        $available->assertOk();
+        $this->assertSame('mercadopago', $available->json('methods.0.code'));
+        $this->assertSame($mpId, $available->json('methods.0.id'));
+
+        // Un evento que no administra no aporta medios.
+        $this->getJson("/tickets-admin/payment-methods/available?event_ids={$otherEventId}")
+            ->assertOk()
+            ->assertJsonCount(0, 'methods');
+
+        // Da de alta un vendedor: aunque mande rol admin, queda vendedor; el
+        // evento ajeno y los medios fuera de alcance se descartan.
+        $this->postJson('/tickets-admin/users', [
+            'name' => 'Vendedor Admin',
+            'email' => 'vendedor-admin@test.local',
+            'password' => 'secreto123',
+            'role' => 'admin',
+            'event_ids' => [$eventId, $otherEventId],
+            'payment_method_ids' => [$mpId],
+        ])->assertCreated();
+
+        $seller = User::where('email', 'vendedor-admin@test.local')->first();
+        $this->assertSame(User::ROLE_SELLER, $seller->roleName());
+        $this->assertSame([$eventId], $seller->assignedEventIds());
+        $this->assertSame([$mpId], $seller->paymentMethodIds());
+    }
+
+    /**
+     * Habilita Multipago a nivel global con credenciales minimas, que es lo que
+     * lo vuelve disponible para todos los eventos (el QR es el mismo PUM).
+     */
+    private function enableMultipago(): int
+    {
+        $id = (int) DB::table('tickets_payment_methods')->where('code', 'multipago')->value('id');
+
+        DB::table('tickets_payment_methods')->where('id', $id)->update([
+            'enabled' => 1,
+            'config' => json_encode([
+                'bersacode' => '1234',
+                'username' => 'usuario',
+                'password' => 'clave',
+                'large' => 10,
+                'testing' => false,
+            ]),
+            'updated_at' => now(),
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Asigna un medio de pago a un operador (tickets_user_payment_method).
+     */
+    private function allowPaymentMethod(User $user, int $methodId): void
+    {
+        DB::table('tickets_user_payment_method')->insert([
+            'user_id' => $user->id,
+            'payment_method_id' => $methodId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
     /**
      * Reemplaza el driver de broadcast por uno que siempre tira, que es lo que
      * pasa cuando Reverb no esta levantado.

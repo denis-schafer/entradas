@@ -2,6 +2,8 @@
 
 namespace App\Services\Payments;
 
+use Illuminate\Support\Facades\DB;
+
 /**
  * Que medios de pago se pueden cobrar en un evento, ya resueltos con sus
  * credenciales y las variantes de cada uno.
@@ -90,5 +92,63 @@ class EventPaymentMethods
             fn ($method) => $method['code'],
             self::forEvent($eventId)
         )));
+    }
+
+    /**
+     * Codes distintos disponibles en la union de varios eventos.
+     *
+     * @param  array<int,int|string>  $eventIds
+     * @return string[]
+     */
+    public static function codesForEvents(array $eventIds): array
+    {
+        $codes = [];
+
+        foreach (array_unique(array_map('intval', $eventIds)) as $eventId) {
+            foreach (self::codesForEvent($eventId) as $code) {
+                $codes[$code] = true;
+            }
+        }
+
+        return array_keys($codes);
+    }
+
+    /**
+     * Medios asignables (con id de la tabla) disponibles en un conjunto de
+     * eventos. Multipago aparece una sola vez aunque exponga qr y boton.
+     *
+     * @param  array<int,int|string>  $eventIds
+     * @return array<int,array{id:int,code:string,name:string}>
+     */
+    public static function forEvents(array $eventIds): array
+    {
+        $codes = self::codesForEvents($eventIds);
+
+        if (! $codes) {
+            return [];
+        }
+
+        return DB::table('tickets_payment_methods')
+            ->where('enabled', 1)
+            ->whereIn('code', $codes)
+            ->orderBy('sort_order')
+            ->get(['id', 'code', 'name'])
+            ->map(fn ($method) => [
+                'id' => (int) $method->id,
+                'code' => $method->code,
+                'name' => $method->name,
+            ])
+            ->all();
+    }
+
+    /**
+     * IDs de los medios disponibles en un conjunto de eventos.
+     *
+     * @param  array<int,int|string>  $eventIds
+     * @return int[]
+     */
+    public static function idsForEvents(array $eventIds): array
+    {
+        return array_map(fn ($method) => $method['id'], self::forEvents($eventIds));
     }
 }

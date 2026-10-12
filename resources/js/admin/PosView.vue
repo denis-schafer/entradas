@@ -1,15 +1,19 @@
 <script setup>
 /**
- * POS de la caja: venta en efectivo.
+ * POS de la caja.
  *
  * El flujo es el de un mostrador: elegir el evento, cargar entradas, resolver
  * el comprador (buscar por DNI: si existe se selecciona, si no se crea con la
- * contrasena por defecto = DNI) y cerrar la venta. El cobro es en efectivo, asi
- * que la orden queda pagada en el acto y se muestra el comprobante para
- * imprimir desde la PC local.
+ * contrasena por defecto = DNI) y elegir la forma de pago.
+ *
+ * Con efectivo la orden queda pagada en el acto y se muestra el comprobante
+ * para imprimir. Con un medio de pago se genera un link (Checkout Pro de MP o
+ * codigo Multipago) para mandarle al comprador; la orden queda pendiente y el
+ * link de la entrada recien aparece cuando el webhook acredita el pago.
  */
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import api, { toError } from '../api.js';
+import { listen } from '../realtime.js';
 import EmptyState from '../ui/EmptyState.vue';
 import { toast } from '../ui/toast.js';
 
@@ -38,6 +42,14 @@ const saleError = ref('');
 const receipt = ref(null);
 
 /*
+| Forma de pago elegida. Se codifica como 'code' o 'code:variant' para poder
+| ofrecer Multipago como dos opciones (QR y boton de pago) con una sola lista.
+*/
+const paymentMethods = ref([]);
+const paymentMethod = ref('efectivo');
+const loadingMethods = ref(false);
+
+/*
 | Pestaña activa: "sell" arma la venta; "sales" es el historial de lo vendido
 | (el vendedor ve sus ventas y puede volver a mandar el link o el comprobante).
 | Se carga la primera vez que se entra, no al montar.
@@ -64,6 +76,20 @@ function shareMessageFor(eventName) {
 
 const entryLink = computed(() => entryLinkFor(receipt.value?.order?.public_token));
 
+/*
+| Estado del comprobante abierto: una venta pagada muestra el link de la
+| entrada y se puede imprimir; una pendiente muestra el link/codigo de pago.
+*/
+const saleIsPaid = computed(() => receipt.value?.order?.status === 'paid');
+const salePayment = computed(() => receipt.value?.payment || null);
+const paymentLinkValue = computed(() => salePayment.value?.link || '');
+
+const chosenMethod = computed(() => {
+    const [code, variant] = String(paymentMethod.value || 'efectivo').split(':');
+
+    return { code, variant: variant || null };
+});
+
 function copyEntryLink() {
     const link = entryLink.value;
 
@@ -85,6 +111,83 @@ function sendByWhatsApp() {
     }
 
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
+function paymentMessageFor(eventName) {
+    const link = paymentLinkValue.value;
+
+    if (!link) {
+        return '';
+    }
+
+    return `Para pagar tus entradas de ${eventName || 'el evento'}: ${link}`;
+}
+
+function copyPaymentLink() {
+    if (!paymentLinkValue.value) {
+        return;
+    }
+
+    navigator.clipboard
+        .writeText(paymentLinkValue.value)
+        .then(() => toast('Link de pago copiado. Mandalo al comprador.', 'success'))
+        .catch(() => toast('No se pudo copiar el link.', 'danger'));
+}
+
+function sendPaymentByWhatsApp() {
+    const text = paymentMessageFor(receipt.value?.order?.event_name);
+
+    if (!text) {
+        return;
+    }
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
+function copyPaymentCode() {
+    const code = salePayment.value?.code;
+
+    if (!code) {
+        return;
+    }
+
+    navigator.clipboard
+        .writeText(code)
+        .then(() => toast('Codigo copiado.', 'success'))
+        .catch(() => toast('No se pudo copiar el codigo.', 'danger'));
+}
+
+/**
+ * Abre una venta pendiente: trae su link de pago y muestra el modal de cobro.
+ */
+async function openPayment(id) {
+    try {
+        const { data } = await api.get(`tickets-admin/pos/orders/${id}/payment-link`);
+        receipt.value = data;
+    } catch (err) {
+        toast(toError(err).message, 'danger');
+    }
+}
+
+/**
+ * Reenvia por WhatsApp el link de pago de una venta pendiente del historial.
+ */
+async function resendPayment(sale) {
+    try {
+        const { data } = await api.get(`tickets-admin/pos/orders/${sale.id}/payment-link`);
+        const link = data?.payment?.link;
+
+        if (!link) {
+            toast('Esta venta no tiene un link de pago.', 'warning');
+            return;
+        }
+
+        const text = `Para pagar tus entradas de ${sale.event_name || 'el evento'}: ${link}`;
+
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    } catch (err) {
+        toast(toError(err).message, 'danger');
+    }
 }
 
 async function loadSales() {
@@ -134,6 +237,16 @@ function resendWhatsApp(sale) {
 
 function saleDate(value) {
     return new Date(value || null).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+
+function paymentLabel(method) {
+    const labels = {
+        efectivo: 'Efectivo',
+        mercadopago: 'MercadoPago',
+        multipago: 'Multipago',
+    };
+
+    return labels[method] || '—';
 }
 
 function money(value) {
@@ -211,6 +324,7 @@ async function loadTypes() {
     }
 
     loadingTypes.value = true;
+    loadPaymentMethods();
 
     try {
         const { data } = await api.get(`tickets-admin/pos/events/${eventId.value}/ticket-types`);
@@ -225,6 +339,30 @@ async function loadTypes() {
         types.value = [];
     } finally {
         loadingTypes.value = false;
+    }
+}
+
+/**
+ * Medios con los que este operador puede cobrar en el evento: siempre efectivo
+ * primero, despues lo que el evento habilite y el usuario tenga permitido.
+ */
+async function loadPaymentMethods() {
+    loadingMethods.value = true;
+
+    try {
+        const { data } = await api.get(`tickets-admin/pos/events/${eventId.value}/payment-methods`);
+        paymentMethods.value = data.methods || [];
+
+        const available = paymentMethods.value.map((m) => (m.variant ? `${m.code}:${m.variant}` : m.code));
+
+        if (!available.includes(paymentMethod.value)) {
+            paymentMethod.value = 'efectivo';
+        }
+    } catch (err) {
+        paymentMethods.value = [{ code: 'efectivo', variant: null, name: 'Efectivo' }];
+        paymentMethod.value = 'efectivo';
+    } finally {
+        loadingMethods.value = false;
     }
 }
 
@@ -314,6 +452,8 @@ async function confirmSale() {
         const { data } = await api.post('tickets-admin/pos/sales', {
             event_id: Number(eventId.value),
             buyer_id: selectedBuyer.value.id,
+            payment_method: chosenMethod.value.code,
+            payment_method_variant: chosenMethod.value.variant,
             items: cartItems.value.map((item) => ({
                 ticket_type_id: item.ticket_type_id,
                 qty: item.qty,
@@ -321,7 +461,12 @@ async function confirmSale() {
         });
 
         receipt.value = data;
-        toast('Venta registrada', 'success');
+
+        if (data?.payment) {
+            toast('Venta registrada. Mandale el link de pago al comprador.', 'success');
+        } else {
+            toast('Venta registrada', 'success');
+        }
     } catch (err) {
         saleError.value = toError(err).message;
     } finally {
@@ -421,7 +566,34 @@ function printReceipt() {
     win.document.close();
 }
 
-onMounted(loadEvents);
+/*
+| Cuando el webhook acredita una venta pendiente, el panel lo empuja por el
+| canal de administracion. Se actualiza el historial y, si esa venta esta
+| abierta en el modal, se refresca para mostrar el link de la entrada.
+*/
+function onOrderStatus(payload) {
+    const sale = sales.value.find((row) => row.id === payload.orderId);
+
+    if (sale) {
+        sale.status = payload.status;
+    }
+
+    if (receipt.value?.order?.id === payload.orderId && payload.status === 'paid') {
+        openReceipt(payload.orderId);
+        toast('Pago acreditado', 'success');
+    }
+}
+
+let unsubscribe = () => {};
+
+onMounted(() => {
+    loadEvents();
+    unsubscribe = listen('tickets.admin', 'order.status', onOrderStatus);
+});
+
+onUnmounted(() => {
+    unsubscribe();
+});
 </script>
 
 <template>
@@ -429,7 +601,7 @@ onMounted(loadEvents);
         <header class="d-flex align-items-center justify-content-between gap-2 mb-3 flex-wrap">
             <div>
                 <h2 class="h5 fw-bold mb-0">Vender</h2>
-                <p class="text-muted-2 small mb-0">Venta en efectivo. El comprobante se imprime desde esta PC.</p>
+                <p class="text-muted-2 small mb-0">Efectivo (se cobra en el acto) o link de pago para el comprador.</p>
             </div>
         </header>
 
@@ -579,12 +751,28 @@ onMounted(loadEvents);
                     <strong class="numeric">{{ money(cartTotal) }}</strong>
                 </div>
 
+                <div class="mb-2">
+                    <label class="form-label" for="pos-payment">Forma de pago</label>
+                    <select id="pos-payment" v-model="paymentMethod" class="form-select" :disabled="loadingMethods">
+                        <option
+                            v-for="method in paymentMethods"
+                            :key="method.variant ? `${method.code}:${method.variant}` : method.code"
+                            :value="method.variant ? `${method.code}:${method.variant}` : method.code"
+                        >
+                            {{ method.name }}
+                        </option>
+                    </select>
+                    <div v-if="chosenMethod.code !== 'efectivo'" class="form-text">
+                        Se genera un link de pago; la entrada se habilita cuando se acredita el pago.
+                    </div>
+                </div>
+
                 <p v-if="saleError" class="small" style="color: var(--et-danger)">{{ saleError }}</p>
 
                 <button class="btn btn-et-primary w-100" :disabled="selling || !cartCount || !selectedBuyer" @click="confirmSale">
                     <span v-if="selling" class="spinner-border spinner-border-sm me-1"></span>
-                    <i v-else class="bi bi-cash-coin me-1"></i>
-                    Cobrar efectivo
+                    <i v-else :class="chosenMethod.code === 'efectivo' ? 'bi bi-cash-coin me-1' : 'bi bi-link-45deg me-1'"></i>
+                    {{ chosenMethod.code === 'efectivo' ? 'Cobrar efectivo' : 'Generar link de pago' }}
                 </button>
             </aside>
         </div>
@@ -604,7 +792,7 @@ onMounted(loadEvents);
                 v-else-if="!sales.length"
                 icon="bi-receipt"
                 title="Todavia no vendiste nada"
-                hint="Las ventas en efectivo que hagas van a aparecer aca, con su link para reenviar."
+                hint="Tus ventas van a aparecer aca, con su link de pago o de entrada para reenviar."
             />
 
             <div v-else class="et-surface pos__sales-table">
@@ -615,7 +803,9 @@ onMounted(loadEvents);
                     <span>Comprador</span>
                     <span class="text-end">Entradas</span>
                     <span class="text-end">Total</span>
-                    <span class="text-end">Link</span>
+                    <span>Estado</span>
+                    <span>Medio</span>
+                    <span class="text-end">Acciones</span>
                 </div>
                 <div v-for="sale in sales" :key="sale.id" class="pos__sales-row">
                     <span class="fw-semibold">#{{ sale.id }}</span>
@@ -627,31 +817,61 @@ onMounted(loadEvents);
                     </span>
                     <span class="text-end numeric">{{ sale.ticket_count }}</span>
                     <span class="text-end numeric">{{ money(sale.total) }}</span>
+                    <span>
+                        <span class="et-badge" :class="sale.status === 'paid' ? 'et-badge--success' : 'et-badge--muted'">
+                            {{ sale.status === 'paid' ? 'Pagada' : 'Pendiente' }}
+                        </span>
+                    </span>
+                    <span class="small text-faint">{{ paymentLabel(sale.payment_method) }}</span>
                     <span class="d-flex gap-1 justify-content-end">
-                        <button
-                            class="btn btn-et-ghost btn-sm"
-                            title="Reenviar el link por WhatsApp"
-                            @click="resendWhatsApp(sale)"
-                        >
-                            <i class="bi bi-whatsapp"></i>
-                        </button>
-                        <button
-                            class="btn btn-et-ghost btn-sm"
-                            title="Ver comprobante"
-                            @click="openReceipt(sale.id)"
-                        >
-                            <i class="bi bi-printer"></i>
-                        </button>
+                        <template v-if="sale.status === 'paid'">
+                            <button
+                                class="btn btn-et-ghost btn-sm"
+                                title="Reenviar el link de la entrada por WhatsApp"
+                                @click="resendWhatsApp(sale)"
+                            >
+                                <i class="bi bi-whatsapp"></i>
+                            </button>
+                            <button
+                                class="btn btn-et-ghost btn-sm"
+                                title="Ver comprobante"
+                                @click="openReceipt(sale.id)"
+                            >
+                                <i class="bi bi-printer"></i>
+                            </button>
+                        </template>
+                        <template v-else>
+                            <button
+                                class="btn btn-et-ghost btn-sm"
+                                title="Reenviar el link de pago por WhatsApp"
+                                @click="resendPayment(sale)"
+                            >
+                                <i class="bi bi-whatsapp"></i>
+                            </button>
+                            <button
+                                class="btn btn-et-ghost btn-sm"
+                                title="Ver link de pago"
+                                @click="openPayment(sale.id)"
+                            >
+                                <i class="bi bi-link-45deg"></i>
+                            </button>
+                        </template>
                     </span>
                 </div>
             </div>
         </section>
 
-        <!-- Comprobante -->
+        <!-- Comprobante / cobro -->
         <div v-if="receipt" class="modal-backdrop" @click.self="newSale">
             <div class="modal-sheet modal-sheet--wide">
                 <header class="modal-sheet__head">
-                    <h3 class="h6 fw-bold mb-0">Venta #{{ receipt.order.id }} registrada</h3>
+                    <h3 class="h6 fw-bold mb-0">
+                        Venta #{{ receipt.order.id }}
+                        <span
+                            class="et-badge ms-1"
+                            :class="saleIsPaid ? 'et-badge--success' : 'et-badge--muted'"
+                        >{{ saleIsPaid ? 'Pagada' : 'Pendiente de pago' }}</span>
+                    </h3>
                     <button class="btn btn-link btn-sm p-0" @click="newSale">
                         <i class="bi bi-x-lg"></i>
                     </button>
@@ -664,44 +884,91 @@ onMounted(loadEvents);
                             <div class="fw-semibold">{{ receipt.order.buyer_name }}</div>
                         </div>
                         <div>
-                            <div class="small text-faint">Total cobrado</div>
+                            <div class="small text-faint">{{ saleIsPaid ? 'Total cobrado' : 'Total a pagar' }}</div>
                             <div class="fw-semibold numeric">{{ money(receipt.order.total) }}</div>
                         </div>
                         <div>
                             <div class="small text-faint">Entradas</div>
                             <div class="fw-semibold numeric">{{ receipt.tickets.length }}</div>
                         </div>
-                    </div>
-
-                    <ul class="pos__receipt-tickets">
-                        <li v-for="ticket in receipt.tickets" :key="ticket.id">
-                            <img :src="`/tickets-admin/pos/tickets/${ticket.id}/qr.svg?size=200`" :alt="ticket.uuid">
-                            <span class="small text-faint">{{ ticket.type_name }}</span>
-                        </li>
-                    </ul>
-
-                    <div class="pos__share">
-                        <div class="small text-faint mb-1">Link para el comprador (abre sus entradas con el QR)</div>
-                        <div class="d-flex gap-2">
-                            <input
-                                :value="entryLink"
-                                class="form-control form-control-sm numeric"
-                                readonly
-                                @focus="$event.target.select()"
-                            >
-                            <button class="btn btn-et-ghost btn-sm" @click="copyEntryLink">
-                                <i class="bi bi-clipboard me-1"></i>Copiar
-                            </button>
-                            <button class="btn btn-et-primary btn-sm" @click="sendByWhatsApp">
-                                <i class="bi bi-whatsapp me-1"></i>WhatsApp
-                            </button>
+                        <div v-if="!saleIsPaid">
+                            <div class="small text-faint">Medio</div>
+                            <div class="fw-semibold">{{ paymentLabel(receipt.order.payment_method) }}</div>
                         </div>
                     </div>
 
+                    <!-- Pagada: link de la entrada + QR para imprimir -->
+                    <template v-if="saleIsPaid">
+                        <ul class="pos__receipt-tickets">
+                            <li v-for="ticket in receipt.tickets" :key="ticket.id">
+                                <img :src="`/tickets-admin/pos/tickets/${ticket.id}/qr.svg?size=200`" :alt="ticket.uuid">
+                                <span class="small text-faint">{{ ticket.type_name }}</span>
+                            </li>
+                        </ul>
+
+                        <div class="pos__share">
+                            <div class="small text-faint mb-1">Link para el comprador (abre sus entradas con el QR)</div>
+                            <div class="d-flex gap-2">
+                                <input
+                                    :value="entryLink"
+                                    class="form-control form-control-sm numeric"
+                                    readonly
+                                    @focus="$event.target.select()"
+                                >
+                                <button class="btn btn-et-ghost btn-sm" @click="copyEntryLink">
+                                    <i class="bi bi-clipboard me-1"></i>Copiar
+                                </button>
+                                <button class="btn btn-et-primary btn-sm" @click="sendByWhatsApp">
+                                    <i class="bi bi-whatsapp me-1"></i>WhatsApp
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Pendiente: link/codigo de pago -->
+                    <template v-else-if="salePayment">
+                        <div class="pos__pending-note">
+                            <i class="bi bi-clock-history me-1"></i>
+                            La entrada se habilita cuando el comprador paga. Mandale el link o el codigo.
+                        </div>
+
+                        <div v-if="salePayment.method === 'multipago' && salePayment.qr_url" class="pos__multipago">
+                            <img :src="`${salePayment.qr_url}?size=240`" alt="QR Multipago">
+                            <div class="text-center">
+                                <div class="small text-faint mb-1">Codigo de pago</div>
+                                <div class="numeric fw-semibold pos__code">{{ salePayment.code }}</div>
+                                <button class="btn btn-et-ghost btn-sm mt-1" @click="copyPaymentCode">
+                                    <i class="bi bi-clipboard me-1"></i>Copiar codigo
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="pos__share">
+                            <div class="small text-faint mb-1">Link de pago para el comprador</div>
+                            <div class="d-flex gap-2">
+                                <input
+                                    :value="paymentLinkValue"
+                                    class="form-control form-control-sm numeric"
+                                    readonly
+                                    @focus="$event.target.select()"
+                                >
+                                <button class="btn btn-et-ghost btn-sm" @click="copyPaymentLink">
+                                    <i class="bi bi-clipboard me-1"></i>Copiar
+                                </button>
+                                <button class="btn btn-et-primary btn-sm" @click="sendPaymentByWhatsApp">
+                                    <i class="bi bi-whatsapp me-1"></i>WhatsApp
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+
                     <footer class="modal-sheet__foot">
                         <button class="btn btn-et-ghost" @click="newSale">Nueva venta</button>
-                        <button class="btn btn-et-primary" @click="printReceipt">
+                        <button v-if="saleIsPaid" class="btn btn-et-primary" @click="printReceipt">
                             <i class="bi bi-printer me-1"></i>Imprimir comprobante
+                        </button>
+                        <button v-else class="btn btn-et-primary" @click="sendPaymentByWhatsApp">
+                            <i class="bi bi-whatsapp me-1"></i>Enviar pago
                         </button>
                     </footer>
                 </div>
@@ -868,6 +1135,33 @@ onMounted(loadEvents);
     flex: 1;
 }
 
+.pos__pending-note {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--et-border);
+    border-radius: var(--et-radius-sm);
+    background: var(--et-bg-elevated);
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.pos__multipago {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.pos__multipago img {
+    width: 200px;
+    height: 200px;
+}
+
+.pos__code {
+    font-size: 0.95rem;
+    word-break: break-all;
+}
+
 .pos__tabs {
     display: flex;
     gap: 0.35rem;
@@ -901,13 +1195,13 @@ onMounted(loadEvents);
 
 .pos__sales-row {
     display: grid;
-    grid-template-columns: minmax(60px, 74px) 72px minmax(140px, 1fr) minmax(140px, 1.2fr) 64px 84px auto;
+    grid-template-columns: minmax(60px, 74px) 72px minmax(130px, 1fr) minmax(130px, 1.1fr) 64px 84px 92px 96px auto;
     gap: 0.75rem;
     align-items: center;
     padding: 0.5rem 0.65rem;
     border-bottom: 1px solid var(--et-border);
     font-size: 0.85rem;
-    min-width: 720px;
+    min-width: 900px;
 }
 
 .pos__sales-row:last-child {
