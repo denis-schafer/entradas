@@ -57,6 +57,12 @@ async function loadEvents() {
     try {
         const { data: payload } = await api.get('tickets-admin/events', { all: 1 });
         events.value = payload;
+
+        // Con un solo evento asignado el selector sobra: se fija el filtro para
+        // que el panel muestre siempre ese evento.
+        if (payload.length === 1) {
+            eventId.value = payload[0].id;
+        }
     } catch {
         // El filtro es una comodidad: sin la lista el panel se ve global.
     }
@@ -107,7 +113,8 @@ function formatEventDate(value) {
 }
 
 onMounted(async () => {
-    await Promise.all([load(), loadEvents()]);
+    await loadEvents();
+    await load();
 
     // El canal del admin. Cualquiera de estos eventos puede cambiar un numero
     // de esta pantalla, asi que los cinco usan la misma accion.
@@ -141,6 +148,7 @@ onBeforeUnmount(() => {
 
             <div class="d-flex gap-2 flex-wrap">
                 <select
+                    v-if="events.length > 1"
                     v-model="eventId"
                     class="form-select"
                     style="max-width: 260px"

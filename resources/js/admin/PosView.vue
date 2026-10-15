@@ -92,6 +92,8 @@ const chosenMethod = computed(() => {
     return { code, variant: variant || null };
 });
 
+const currentEvent = computed(() => events.value.find((event) => event.id === eventId.value) || null);
+
 function copyEntryLink() {
     const link = entryLink.value;
 
@@ -636,7 +638,7 @@ onUnmounted(() => {
 
         <div v-else class="pos">
             <section class="et-surface-raised p-3 pos__catalog">
-                <div class="mb-3">
+                <div v-if="events.length > 1" class="mb-3">
                     <label class="form-label" for="pos-event">Evento</label>
                     <select id="pos-event" v-model="eventId" class="form-select" @change="loadTypes">
                         <option value="" disabled>Elegi un evento</option>
@@ -644,6 +646,11 @@ onUnmounted(() => {
                             {{ event.name }}
                         </option>
                     </select>
+                </div>
+
+                <div v-else-if="currentEvent" class="mb-3">
+                    <div class="form-label">Evento</div>
+                    <div class="fw-semibold">{{ currentEvent.name }}</div>
                 </div>
 
                 <div v-if="loadingTypes" class="text-center py-4">

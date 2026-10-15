@@ -75,6 +75,12 @@ async function loadEvents() {
         const { data } = await api.get('tickets-admin/events', { all: 1 });
 
         events.value = data;
+
+        // Con un solo evento asignado el filtro sobra: se fija solo para que la
+        // lista de anuncios sea siempre la de ese evento.
+        if (data.length === 1) {
+            filters.event_id = data[0].id;
+        }
     } catch {
         // Se puede publicar publicidad global sin eventos cargados.
     }
@@ -253,7 +259,13 @@ watch(() => filters.event_id, () => {
 });
 
 onMounted(async () => {
-    await Promise.all([load(), loadEvents()]);
+    await loadEvents();
+
+    // Si hay un solo evento, loadEvents ya fijo filters.event_id y el watch de
+    // mas arriba dispara la carga. Si no, se carga aca sin filtro.
+    if (!filters.event_id) {
+        await load();
+    }
 });
 </script>
 
@@ -270,7 +282,7 @@ onMounted(async () => {
             </button>
         </header>
 
-        <div class="et-surface-raised p-3 mb-3">
+        <div v-if="events.length > 1" class="et-surface-raised p-3 mb-3">
             <label class="form-label" for="event">Evento</label>
             <select id="event" v-model="filters.event_id" class="form-select">
                 <option value="">Todos</option>

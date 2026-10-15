@@ -68,8 +68,14 @@ async function loadEvents() {
         const { data: payload } = await api.get('tickets-admin/events', { all: 1 });
 
         events.value = payload;
+
+        // Con un solo evento asignado el selector sobra: se fija el filtro para
+        // que las estadisticas sean siempre las de ese evento.
+        if (payload.length === 1) {
+            eventId.value = payload[0].id;
+        }
     } catch {
-        // El filtro es una comodidad; las estadisticas globales se ven igual.
+        // El filtro es una comodidad, no un requisito.
     }
 }
 
@@ -164,7 +170,8 @@ function sellThrough(row) {
 }
 
 onMounted(async () => {
-    await Promise.all([load(), loadEvents()]);
+    await loadEvents();
+    await load();
 });
 </script>
 
@@ -180,6 +187,7 @@ onMounted(async () => {
 
             <div class="d-flex gap-2 align-items-center flex-wrap">
                 <select
+                    v-if="events.length > 1"
                     v-model="eventId"
                     class="form-select"
                     style="max-width: 260px"

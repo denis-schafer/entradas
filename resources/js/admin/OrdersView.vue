@@ -68,6 +68,12 @@ async function loadEvents() {
         const { data } = await api.get('tickets-admin/events', { all: 1 });
 
         events.value = data;
+
+        // Con un solo evento asignado el selector sobra: se fija el filtro para
+        // que el listado sea siempre el de ese evento.
+        if (data.length === 1) {
+            filters.event_id = data[0].id;
+        }
     } catch {
         // El filtro por evento es una comodidad, no un requisito.
     }
@@ -204,7 +210,13 @@ watch([() => filters.status, () => filters.event_id, () => filters.payment_metho
 });
 
 onMounted(async () => {
-    await Promise.all([load(), loadEvents()]);
+    await loadEvents();
+
+    // Si hay un solo evento, loadEvents ya fijo filters.event_id y el watch de
+    // mas arriba dispara la carga. Si no, se carga aca sin filtro.
+    if (!filters.event_id) {
+        await load();
+    }
 
     // Una orden que se paga aparece en la lista sin recargar: es el numero que
     // el operador mira para saber si la venta entro.
@@ -255,7 +267,7 @@ onBeforeUnmount(() => {
                     </select>
                 </div>
 
-                <div class="col-6 col-lg-3">
+                <div v-if="events.length > 1" class="col-6 col-lg-3">
                     <label class="form-label" for="event">Evento</label>
                     <select id="event" v-model="filters.event_id" class="form-select">
                         <option value="">Todos</option>

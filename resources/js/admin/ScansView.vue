@@ -48,6 +48,12 @@ async function loadEvents() {
         const { data } = await api.get('tickets-admin/events', { all: 1 });
 
         events.value = data;
+
+        // Con un solo evento asignado el selector sobra: se fija el filtro para
+        // que los escaneos que se vean sean siempre los de ese evento.
+        if (data.length === 1) {
+            filters.value.event_id = data[0].id;
+        }
     } catch {
         // El filtro por evento es una comodidad: si falla, se sigue sin filtro.
     }
@@ -106,7 +112,13 @@ function goToPage(page) {
 watch(() => [filters.value.event_id, filters.value.result], applyFilters);
 
 onMounted(async () => {
-    await Promise.all([load(), loadEvents()]);
+    await loadEvents();
+
+    // Si hay un solo evento, loadEvents ya fijo filters.event_id y el watch de
+    // mas arriba dispara la carga. Si no, se carga aca sin filtro.
+    if (!filters.value.event_id) {
+        await load();
+    }
 
     // Un escaneo nuevo tiene que aparecer sin que el operador recargue: es la
     // unica forma de que dos puertas compartan el mismo estado.
@@ -134,7 +146,7 @@ onBeforeUnmount(() => {
 
         <div class="et-surface-raised p-3 mb-3">
             <div class="row g-2">
-                <div class="col-12 col-md-6">
+                <div v-if="events.length > 1" class="col-12 col-md-6">
                     <label class="form-label" for="f-event">Evento</label>
                     <select id="f-event" v-model="filters.event_id" class="form-select">
                         <option value="">Todos</option>

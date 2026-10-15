@@ -143,7 +143,11 @@ async function load() {
                     : !!ev.config.button_enabled;
             });
 
-            selectedEvent.value[m.code] = selectedEvent.value[m.code] ?? null;
+            // Con un solo evento configurado el selector sobra: se elige solo
+            // para que el bloque de configuracion quede visible sin un paso
+            // extra que no aporta nada.
+            selectedEvent.value[m.code] = selectedEvent.value[m.code]
+                ?? ((m.events || []).length === 1 ? m.events[0].event_id : null);
             open.value[m.code] = open.value[m.code] ?? false;
         });
     } catch (err) {
@@ -573,7 +577,7 @@ onMounted(load);
                     </div>
 
                     <template v-else>
-                        <div class="row g-2 mb-3">
+                        <div v-if="eventsFor(method.code).length > 1" class="row g-2 mb-3">
                             <div class="col-md-6">
                                 <label class="form-label small mb-1">Evento</label>
                                 <select

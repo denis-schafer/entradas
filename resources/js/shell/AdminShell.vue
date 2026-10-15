@@ -12,7 +12,7 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue';
 import { useRoute, go, defineRoutes } from './router.js';
-import { destroyRealtime, listen, realtimeState } from '../realtime.js';
+import { destroyRealtime, listen } from '../realtime.js';
 import api from '../api.js';
 import DashboardView from '../admin/DashboardView.vue';
 import EventsView from '../admin/EventsView.vue';
@@ -263,13 +263,6 @@ onBeforeUnmount(() => {
             </nav>
 
             <div class="admin__side-foot">
-                <div class="d-flex align-items-center gap-2 mb-2">
-                    <i class="bi bi-circle-fill live-dot" :class="{ 'is-live': realtimeState.connected }"></i>
-                    <span class="small text-muted-2">
-                        {{ realtimeState.connected ? 'En vivo' : 'Sin conexion en vivo' }}
-                    </span>
-                </div>
-
                 <button class="admin__user" @click="navigate('settings')">
                     <i class="bi bi-person-circle"></i>
                     <span class="text-truncate">{{ user.name }}</span>
@@ -432,15 +425,6 @@ onBeforeUnmount(() => {
 
 .admin__user:hover {
     background: var(--et-surface-hover);
-}
-
-.live-dot {
-    font-size: 0.5rem;
-    color: var(--et-text-faint);
-}
-
-.live-dot.is-live {
-    color: var(--et-success);
 }
 
 .admin__main {
