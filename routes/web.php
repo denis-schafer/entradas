@@ -10,6 +10,7 @@ use App\Http\Controllers\TicketsCheckoutController;
 use App\Http\Controllers\TicketsConfigController;
 use App\Http\Controllers\TicketsDashboardController;
 use App\Http\Controllers\TicketsEventController;
+use App\Http\Controllers\TicketsMaintenanceController;
 use App\Http\Controllers\TicketsMercadoPagoController;
 use App\Http\Controllers\TicketsMultipagoController;
 use App\Http\Controllers\TicketsOrderController;
@@ -160,6 +161,14 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             | sin tener que cerrar un pago entero.
             */
             Route::post('config/mp-test', [TicketsConfigController::class, 'testMpToken'])->name('config.mp-test');
+
+            /*
+            | Mantenimiento. Solo admin (lo revalida el controlador): modo test
+            | y blanqueo total de la base.
+            */
+            Route::get('app-state', [TicketsMaintenanceController::class, 'state'])->name('app-state');
+            Route::post('app-state/test-mode', [TicketsMaintenanceController::class, 'setTestMode'])->name('app-state.test-mode');
+            Route::post('app-state/reset-database', [TicketsMaintenanceController::class, 'resetDatabase'])->name('app-state.reset-database');
 
             // Medios de pago
             Route::get('payment-methods', [TicketsPaymentMethodController::class, 'index'])->name('payment-methods.index');

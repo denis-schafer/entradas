@@ -2,16 +2,18 @@
 /**
  * Configuracion general.
  *
- * Se muestran como secretos los que nunca se devuelven en claro al navegador.
- * El access_token de MP puede ser por evento (se gestiona al editar el evento)
- * o de la plataforma: este ultimo se carga aca y es el que se usa cuando el
- * evento no tiene token propio. Tambien queda mp_webhook_secret (global,
- * opcional) y qr_secret (autogenerado).
+ * Identidad y mensajes del portal. Las credenciales de pago (MercadoPago,
+ * Multipago) se administran en "Medios de pago", no aca. Se muestra el estado
+ * de qr_secret, que nunca se devuelve en claro al navegador.
+ *
+ * Al final van las herramientas de mantenimiento: modo test y blanqueo de la
+ * base de datos.
  */
 import { ref, computed, onMounted } from 'vue';
 import api, { toError } from '../api.js';
 import { toast } from '../ui/toast.js';
 import { confirm } from '../ui/confirm.js';
+import { appState, fetchAppState } from '../appState.js';
 
 const configs = ref([]);
 const drafts = ref({});
@@ -20,15 +22,10 @@ const saving = ref(false);
 const error = ref('');
 const savingName = ref('');
 const uploading = ref('');
+const toggling = ref(false);
+const resetting = ref(false);
 
 const READ_ONLY_SECRETS = ['qr_secret'];
-
-/*
- * Secrets que se pueden escribir desde el panel pero NO se devuelven en claro
- * al listar (el backend los enmascara como "__set__"). Se inicializan vacios en
- * drafts para que el input arranque limpio, no con el valor "__set__".
- */
-const EDITABLE_SECRET_NAMES = ['mp_access_token', 'mp_webhook_secret'];
 
 // El nombre de la fila es la clave real del backend, asi que se muestra
 // traducido en pantalla pero no se renombra: cambiarlo seria cambiar el
@@ -41,10 +38,6 @@ const LABELS = {
     welcome_message: 'Mensaje de bienvenida',
     success_message: 'Mensaje de pago aprobado',
     rejection_message: 'Mensaje de pago rechazado',
-    terms_url: 'URL de terminos',
-    privacy_url: 'URL de privacidad',
-    redirect_uri: 'URL de retorno de MercadoPago',
-    mp_webhook_secret: 'Secreto del webhook',
     qr_secret: 'Firma de los QR',
 };
 
@@ -58,11 +51,6 @@ const GROUPS = [
         title: 'Mensajes',
         hint: 'Textos que ve el comprador segun como termino el pago.',
         names: ['welcome_message', 'success_message', 'rejection_message'],
-    },
-    {
-        title: 'Enlaces y pagos',
-        hint: 'Terminos, privacidad y la URL de retorno de MercadoPago.',
-        names: ['terms_url', 'privacy_url', 'redirect_uri'],
     },
 ];
 
@@ -104,16 +92,6 @@ function isColor(name) {
     return name.endsWith('_color');
 }
 
-const PLACEHOLDERS = {
-    redirect_uri: 'https://tickets.salfest.com.ar',
-    terms_url: 'https://...',
-    privacy_url: 'https://...',
-};
-
-function placeholderFor(name) {
-    return PLACEHOLDERS[name] ?? '';
-}
-
 const visibleGroups = computed(() => GROUPS.map((group) => ({
     ...group,
     fields: group.names.map(byName).filter(Boolean),
@@ -132,15 +110,6 @@ async function load() {
         data.forEach((config) => {
             if (READ_ONLY_SECRETS.includes(config.name)) {
                 // qr_secret: ni se muestra ni se edita.
-                return;
-            }
-
-            if (EDITABLE_SECRET_NAMES.includes(config.name)) {
-                // El backend enmascara el valor: inicializamos vacio para que
-                // el input arranque limpio. Si ya hay un valor guardado, el
-                // placeholder lo indica.
-                initial[config.name] = '';
-
                 return;
             }
 
@@ -183,92 +152,6 @@ async function saveOne(config) {
     }
 }
 
-/**
- * Edita un secreto escribible (mp_access_token, mp_webhook_secret). A diferencia
- * de saveOne(), limpia el draft despues de guardar: el valor NUNCA queda visible
- * en la UI (el backend lo enmascara como "__set__" en el GET siguiente).
- *
- * Manda {name, value} y NO {id, value}: la fila puede no existir todavia (el
- * seeder original no siembra mp_access_token / mp_webhook_secret), y el backend
- * hace upsert por name. Mando id tambien si esta, asi un save sobre una fila
- * existente sigue funcionando aunque el frontend haya quedado con un id viejo.
- */
-async function saveSecret(name) {
-    const config = byName(name);
-
-    const value = drafts.value[name] ?? '';
-
-    if (!value || !value.trim()) {
-        toast('Pega un valor antes de guardar', 'warning');
-
-        return;
-    }
-
-    saving.value = true;
-    savingName.value = name;
-
-    try {
-        const item = { name, value: value.trim() };
-
-        if (config?.id) {
-            item.id = config.id;
-        }
-
-        await api.post('tickets-admin/config', {
-            items: [item],
-        });
-
-        // Limpiar el draft para que no quede el token pegado en memoria
-        // despues de guardar. El backend persiste el valor, el listado siguiente
-        // lo muestra como "Configurado" via isSet().
-        setDraft(name, '');
-
-        toast('Guardado', 'success');
-        await load();
-    } catch (err) {
-        toast(toError(err).message, 'danger');
-    } finally {
-        saving.value = false;
-        savingName.value = '';
-    }
-}
-
-async function clearSecret(name) {
-    const confirmed = await confirm({
-        title: 'Quitar valor',
-        message: 'Quitar el valor guardado?',
-        confirmLabel: 'Quitar',
-        tone: 'danger',
-    });
-
-    if (!confirmed) {
-        return;
-    }
-
-    const config = byName(name);
-
-    saving.value = true;
-
-    try {
-        const item = { name, value: '' };
-
-        if (config?.id) {
-            item.id = config.id;
-        }
-
-        await api.post('tickets-admin/config', {
-            items: [item],
-        });
-
-        toast('Quitado', 'success');
-        await load();
-    } catch (err) {
-        toast(toError(err).message, 'danger');
-    } finally {
-        saving.value = false;
-    }
-}
-
 async function uploadImage(config, event) {
     const file = event.target.files?.[0];
 
@@ -308,14 +191,95 @@ async function deleteImage(config) {
     }
 }
 
-onMounted(load);
+/*
+| Modo test: al activarlo, todo lo que se cargue desde ahi queda marcado y se
+| borra al desactivarlo. Desactivar es la accion destructiva, asi que se pide
+| confirmacion.
+*/
+async function toggleTestMode() {
+    const next = !appState.testMode;
+
+    if (!next) {
+        const ok = await confirm({
+            title: 'Desactivar modo test',
+            message: 'Se borraran todos los datos cargados mientras el modo test estuvo activo. Los datos reales no se tocan.',
+            confirmLabel: 'Borrar y desactivar',
+            tone: 'danger',
+        });
+
+        if (!ok) {
+            return;
+        }
+    }
+
+    toggling.value = true;
+
+    try {
+        const { data } = await api.post('tickets-admin/app-state/test-mode', { enabled: next });
+
+        appState.testMode = Boolean(data.test_mode);
+
+        toast(data.message || 'Modo test actualizado', 'success');
+    } catch (err) {
+        toast(toError(err).message, 'danger');
+    } finally {
+        toggling.value = false;
+    }
+}
+
+/*
+| Blanqueo total con doble confirmacion: la segunda es la que deja claro que es
+| irreversible. Al terminar se recarga la app, porque la sesion tambien se
+| limpia y hay que volver a entrar.
+*/
+async function resetDatabase() {
+    const first = await confirm({
+        title: 'Blanquear base de datos',
+        message: 'Se borraran TODOS los datos: eventos, ordenes, entradas, escaneos, usuarios y publicidad. Solo quedara el administrador y la configuracion por defecto.',
+        confirmLabel: 'Continuar',
+        tone: 'danger',
+    });
+
+    if (!first) {
+        return;
+    }
+
+    const second = await confirm({
+        title: 'Confirmar blanqueo',
+        message: 'Esta accion es irreversible y no se puede deshacer. Queres blanquear la base de datos ahora?',
+        confirmLabel: 'Blanquear ahora',
+        tone: 'danger',
+    });
+
+    if (!second) {
+        return;
+    }
+
+    resetting.value = true;
+
+    try {
+        await api.post('tickets-admin/app-state/reset-database');
+
+        toast('Base de datos blanqueada. Volve a iniciar sesion.', 'success');
+
+        setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+        toast(toError(err).message, 'danger');
+        resetting.value = false;
+    }
+}
+
+onMounted(async () => {
+    await load();
+    await fetchAppState();
+});
 </script>
 
 <template>
     <div>
         <header class="mb-3">
             <h2 class="h5 fw-bold mb-0">Configuracion</h2>
-            <p class="text-muted-2 small mb-0">Identidad, mensajes y conexion de pagos.</p>
+            <p class="text-muted-2 small mb-0">Identidad, mensajes y mantenimiento.</p>
         </header>
 
         <p v-if="error" class="small" style="color: var(--et-danger)">
@@ -327,88 +291,15 @@ onMounted(load);
         </div>
 
         <template v-else>
-            <!-- MercadoPago: configuracion de plataforma -->
+            <!-- Seguridad: solo el estado de la firma de los QR -->
             <section class="et-surface-raised p-3 mb-3">
                 <div class="mb-3">
-                    <h3 class="h6 fw-bold mb-1">MercadoPago (plataforma)</h3>
+                    <h3 class="h6 fw-bold mb-1">Seguridad</h3>
                     <p class="small text-muted-2 mb-0">
-                        Las credenciales OAuth de la app (Client ID/Secret) van en el
-                        <code>.env</code> del servidor, NO aca. El <strong>access_token</strong>
-                        de la plataforma se usa para cobrar los eventos que no tienen una
-                        cuenta de MP propia (esos se cargan en la edicion del evento). El
-                        secreto del webhook es opcional.
+                        Las credenciales de pago (MercadoPago, Multipago) se administran
+                        en <strong>Medios de pago</strong>.
                     </p>
                 </div>
-
-                <!--
-                    Access token de la plataforma: se usa como fallback para eventos
-                    sin cuenta de MP propia. El backend lo enmascara como "__set__".
-                -->
-                <div class="mb-3">
-                    <label class="form-label" for="mp-access-token">Access token de la plataforma</label>
-                    <div class="d-flex gap-2 flex-wrap">
-                        <input
-                            id="mp-access-token"
-                            v-model="drafts.mp_access_token"
-                            type="text"
-                            class="form-control form-control-sm flex-grow-1"
-                            autocomplete="off"
-                            spellcheck="false"
-                            :placeholder="isSet(byName('mp_access_token')) ? 'Configurado. Pegá uno nuevo para reemplazar.' : 'APP_USR-... o TEST-...'"
-                        >
-                        <button
-                            class="btn btn-et-ghost btn-sm"
-                            :disabled="saving || !drafts.mp_access_token"
-                            @click="saveSecret('mp_access_token')"
-                        >
-                            <span
-                                v-if="saving && savingName === 'mp_access_token'"
-                                class="spinner-border spinner-border-sm me-1"
-                            ></span>
-                            Guardar token
-                        </button>
-                        <button
-                            v-if="isSet(byName('mp_access_token'))"
-                            class="btn btn-outline-danger btn-sm"
-                            :disabled="saving"
-                            @click="clearSecret('mp_access_token')"
-                        >
-                            Quitar
-                        </button>
-                    </div>
-                </div>
-
-                <!--
-                    Secreto del webhook: opcional. Si esta vacio el backend acepta el webhook
-                    sin chequear firma. Cargalo aca si definiste uno en el panel de MP.
-                -->
-                <div class="mb-3">
-                    <label class="form-label" for="mp-webhook-secret">Secreto del webhook (opcional)</label>
-                    <div class="d-flex gap-2 flex-wrap">
-                        <input
-                            id="mp-webhook-secret"
-                            v-model="drafts.mp_webhook_secret"
-                            type="text"
-                            class="form-control form-control-sm flex-grow-1"
-                            autocomplete="off"
-                            spellcheck="false"
-                            :placeholder="isSet(byName('mp_webhook_secret')) ? 'Configurado. Pegá uno nuevo para reemplazar.' : 'Sin configurar'"
-                        >
-                        <button
-                            class="btn btn-et-ghost btn-sm"
-                            :disabled="saving || !drafts.mp_webhook_secret"
-                            @click="saveSecret('mp_webhook_secret')"
-                        >
-                            <span
-                                v-if="saving && savingName === 'mp_webhook_secret'"
-                                class="spinner-border spinner-border-sm me-1"
-                            ></span>
-                            Guardar secreto
-                        </button>
-                    </div>
-                </div>
-
-                <hr class="et-divider my-3">
 
                 <div class="row g-2">
                     <div v-for="config in secretRows" :key="config.id" class="col-12 col-md-4">
@@ -526,19 +417,8 @@ onMounted(load);
             :value="draft(config.name)"
             type="text"
             class="form-control"
-            :placeholder="placeholderFor(config.name)"
             @input="setDraft(config.name, $event.target.value)"
         >
-
-        <p
-            v-if="config.name === 'redirect_uri'"
-            class="form-text mb-0"
-        >
-            MercadoPago usa esta URL como base para las callbacks de retorno y del webhook.
-            Sin HTTPS publico, los pagos no se pueden completar. En
-            <code>http://entradas.test</code> no funciona: usa ngrok o similar para
-            exponer el sitio local, y pegá aca la direccion HTTPS del tunel.
-        </p>
 
         <button
             class="btn btn-et-ghost btn-sm mt-2"
@@ -549,6 +429,55 @@ onMounted(load);
         </button>
     </template>
                     </div>
+                </div>
+            </section>
+
+            <!-- Mantenimiento -->
+            <section class="et-surface-raised p-3 mb-3">
+                <h3 class="h6 fw-bold mb-0">Mantenimiento</h3>
+                <p class="small text-muted-2 mb-3">Herramientas de prueba y limpieza del sistema.</p>
+
+                <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap border rounded p-3 mb-3">
+                    <div>
+                        <div class="fw-semibold">Modo Test</div>
+                        <p class="small text-muted-2 mb-0">
+                            Mientras este activo, todo lo que se cargue (eventos, ordenes,
+                            entradas, escaneos, usuarios, publicidad) queda marcado y se borra
+                            al desactivarlo. El menu se muestra naranja.
+                        </p>
+                    </div>
+
+                    <div class="form-check form-switch m-0">
+                        <input
+                            id="test-mode"
+                            class="form-check-input"
+                            type="checkbox"
+                            role="switch"
+                            :checked="appState.testMode"
+                            :disabled="toggling"
+                            @change="toggleTestMode"
+                        >
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap border border-danger rounded p-3">
+                    <div>
+                        <div class="fw-semibold text-danger">Blanquear Base de Datos</div>
+                        <p class="small text-muted-2 mb-0">
+                            Borra todos los datos y deja la base como recien instalada: solo
+                            queda el administrador y la configuracion por defecto. Esta accion
+                            no se puede deshacer.
+                        </p>
+                    </div>
+
+                    <button
+                        class="btn btn-et-danger btn-sm text-nowrap"
+                        :disabled="resetting"
+                        @click="resetDatabase"
+                    >
+                        <span v-if="resetting" class="spinner-border spinner-border-sm me-1"></span>
+                        Blanquear
+                    </button>
                 </div>
             </section>
         </template>

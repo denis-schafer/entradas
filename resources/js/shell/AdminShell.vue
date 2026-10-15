@@ -13,6 +13,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, defineAsyncComponent } from 'vue';
 import { useRoute, go, defineRoutes } from './router.js';
 import { destroyRealtime, listen } from '../realtime.js';
+import { appState, fetchAppState } from '../appState.js';
 import api from '../api.js';
 import DashboardView from '../admin/DashboardView.vue';
 import EventsView from '../admin/EventsView.vue';
@@ -205,6 +206,12 @@ function forceLogout() {
 let unsubscribeUserStatus = null;
 
 onMounted(() => {
+    // Estado global (modo test). Solo el admin puede consultarlo: el
+    // administrativo recibe 403 y no lo necesita (su menu no cambia).
+    if (Array.isArray(user.value?.routes) && user.value.routes.includes('*')) {
+        fetchAppState();
+    }
+
     // Aviso de desactivacion: escucha en el canal privado propio.
     unsubscribeUserStatus = listen(`tickets.user.${user.value.id}`, 'user.status', (payload) => {
         if (payload && payload.enable === false) {
@@ -242,11 +249,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="admin" :class="{ 'is-drawer-open': menuOpen }">
+    <div class="admin" :class="{ 'is-drawer-open': menuOpen, 'is-test-mode': appState.testMode }">
         <aside class="admin__side no-print">
             <div class="admin__brand">
                 <span class="admin__brand-mark"></span>
                 <span class="fw-bold">Tickets</span>
+                <span v-if="appState.testMode" class="admin__test-badge">Modo Test</span>
             </div>
 
             <nav class="admin__nav">
@@ -283,6 +291,8 @@ onBeforeUnmount(() => {
                 <h1 class="admin__title">
                     {{ NAV.find((n) => n.name === activeNav)?.label || 'Panel' }}
                 </h1>
+
+                <span v-if="appState.testMode" class="admin__test-badge">Modo Test</span>
 
                 <div class="d-flex gap-2">
                     <button
@@ -490,5 +500,43 @@ onBeforeUnmount(() => {
     .admin__scrim {
         display: none;
     }
+}
+
+/*
+| Modo test: el panel se tine de naranja y muestra la etiqueta en la marca y
+| en la barra superior, para que no haya duda de que lo que se ve no es la
+| operacion real.
+*/
+.admin__test-badge {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #fff;
+    background: #f97316;
+    border-radius: 999px;
+    padding: 0.15rem 0.5rem;
+    white-space: nowrap;
+}
+
+.admin__brand .admin__test-badge {
+    margin-left: auto;
+}
+
+.admin.is-test-mode .admin__brand-mark {
+    background: linear-gradient(135deg, #f97316, #fb923c);
+}
+
+.admin.is-test-mode .admin__side {
+    border-right-color: #fdba74;
+}
+
+.admin.is-test-mode .admin__nav-item.is-on {
+    background: rgb(249 115 22 / 12%);
+    color: #ea580c;
+}
+
+.admin.is-test-mode .admin__top {
+    border-bottom-color: #fdba74;
 }
 </style>
