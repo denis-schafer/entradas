@@ -172,7 +172,6 @@ async function submit() {
                 </button>
             </form>
         </div>
-    </div>
 </template>
 
 <style scoped>
