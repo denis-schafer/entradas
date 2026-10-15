@@ -129,15 +129,16 @@ async function submit() {
 
 <style scoped>
 .auth {
-    display: grid;
-    place-items: center;
-    padding: 2.5rem 0 3.5rem;
+    flex: 1;
+    display: flex;
+    padding: 1rem 0;
 }
 
 .auth__card {
     width: min(420px, 100%);
     padding: 2rem 1.75rem;
     border-radius: var(--et-radius-lg);
+    margin: auto;
 }
 
 .auth__mark {

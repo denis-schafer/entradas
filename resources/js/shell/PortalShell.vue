@@ -17,7 +17,7 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, go, defineRoutes } from './router.js';
-import { destroyRealtime, realtimeState } from '../realtime.js';
+import { destroyRealtime } from '../realtime.js';
 import api from '../api.js';
 import AuthScreen from '../ui/AuthScreen.vue';
 import EventListView from '../portal/EventListView.vue';
@@ -209,24 +209,6 @@ onBeforeUnmount(() => {
             />
         </main>
 
-        <footer class="portal__footer no-print">
-            <div class="portal__footer-inner">
-                <span class="text-faint small">
-                    <span class="live-dot" :class="{ 'is-live': realtimeState.connected }"></span>
-                    {{ config.business_name }}
-                </span>
-
-                <span class="d-flex gap-3 small">
-                    <a v-if="config.terms_url" :href="config.terms_url" target="_blank" rel="noopener" class="link-muted-2">
-                        Terminos
-                    </a>
-                    <a v-if="config.privacy_url" :href="config.privacy_url" target="_blank" rel="noopener" class="link-muted-2">
-                        Privacidad
-                    </a>
-                </span>
-            </div>
-        </footer>
-
         <PaymentNotice v-if="!isGuest" @navigate="(name) => go(name)" />
     </div>
 </template>
@@ -264,8 +246,7 @@ onBeforeUnmount(() => {
     border-bottom: 1px solid var(--et-border);
 }
 
-.portal__nav-inner,
-.portal__footer-inner {
+.portal__nav-inner {
     max-width: var(--et-shell-max);
     margin: 0 auto;
     padding: 0.75rem 1.25rem;
@@ -371,28 +352,8 @@ onBeforeUnmount(() => {
     max-width: var(--et-shell-max);
     margin: 0 auto;
     padding: 1.75rem 1.25rem 3rem;
-}
-
-.portal__footer {
-    border-top: 1px solid var(--et-border);
-    background: rgb(10 10 15 / 60%);
-}
-
-.portal__footer-inner {
-    justify-content: space-between;
-}
-
-.live-dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--et-text-faint);
-    margin-right: 0.4rem;
-}
-
-.live-dot.is-live {
-    background: var(--et-success);
+    display: flex;
+    flex-direction: column;
 }
 
 @media (max-width: 767.98px) {
