@@ -162,13 +162,15 @@ onBeforeUnmount(() => {
                         </button>
                     </template>
 
-                    <button
-                        v-else-if="!isAuthScreen"
-                        class="btn btn-et-primary btn-sm"
-                        @click="go('login')"
-                    >
-                        <i class="bi bi-box-arrow-in-right me-1"></i>Ingresar
-                    </button>
+                    <template v-else-if="!isAuthScreen">
+                        <button class="btn btn-et-ghost btn-sm" @click="go('login')">
+                            Ingresar
+                        </button>
+
+                        <button class="btn btn-et-primary btn-sm" @click="go('register')">
+                            Crear cuenta
+                        </button>
+                    </template>
 
                     <button class="portal__burger" aria-label="Menu" @click="menuOpen = !menuOpen">
                         <i class="bi" :class="menuOpen ? 'bi-x-lg' : 'bi-list'"></i>
@@ -225,7 +227,7 @@ onBeforeUnmount(() => {
             </div>
         </footer>
 
-        <PaymentNotice @navigate="(name) => go(name)" />
+        <PaymentNotice v-if="!isGuest" @navigate="(name) => go(name)" />
     </div>
 </template>
 

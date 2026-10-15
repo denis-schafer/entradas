@@ -237,8 +237,14 @@ const anonView = computed(() => {
             startSessionWatch();
 
             setUnauthorizedHandler(() => {
-                user.value = null;
-                go('login');
+                // Un 401 con sesion (expiro) manda al login. Sin sesion se
+                // ignora: un visitante anonimo navegando el catalogo puede
+                // toparse con algun endpoint que pide cuenta, y eso no debe
+                // arrancarlo de la pantalla en la que esta.
+                if (user.value) {
+                    user.value = null;
+                    go('login');
+                }
             });
 
             scrubLegacyHash();
