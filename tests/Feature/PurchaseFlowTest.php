@@ -449,6 +449,29 @@ class PurchaseFlowTest extends TestCase
         $this->assertSame(1, DB::table('tickets_configs')->where('name', 'qr_secret')->count());
     }
 
+    /**
+     * Regresion: el seeder siembra qr_secret en blanco para que el panel la
+     * liste. El primer QR tiene que completar ESA fila (no crear otra), porque
+     * insertOrIgnore sobre una fila ya existente no insertaba nada y el secreto
+     * quedaba vacio para siempre.
+     */
+    public function test_qr_secret_completa_una_fila_sembrada_vacia(): void
+    {
+        DB::table('tickets_configs')->insertOrIgnore([
+            'name' => 'qr_secret',
+            'value' => '',
+            'type' => 'text',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $secret = QrPayload::secret();
+
+        $this->assertNotSame('', $secret);
+        $this->assertSame(1, DB::table('tickets_configs')->where('name', 'qr_secret')->count());
+        $this->assertSame($secret, DB::table('tickets_configs')->where('name', 'qr_secret')->value('value'));
+    }
+
     public function test_no_se_puede_superar_el_stock(): void
     {
         [$admin, $eventId, $typeId] = $this->publishEvent(['stock' => 1]);

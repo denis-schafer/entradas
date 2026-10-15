@@ -48,9 +48,17 @@ class QrPayload
 
         $secret = Str::random(64);
 
-        // insertOrIgnore + indice unico en name: si dos pedidos simultaneos
-        // llegan sin secreto, solo uno inserta y el otro lee al ganador. Asi
-        // nunca quedan dos secretos distintos firmando QR al mismo tiempo.
+        /*
+        | La fila puede faltar (instalacion sin seeder) o existir en blanco (el
+        | seeder la siembra vacia para que el panel la pueda listar). Por eso no
+        | alcanza con insertOrIgnore: cuando la fila ya existe, no inserta nada y
+        | el secreto quedaba vacio para siempre.
+        |
+        | El update condicional completa una fila vacia o nula sin pisar nunca un
+        | secreto ya valido. Concurrencia: si dos pedidos llegan sin secreto, el
+        | primero que escribe gana y el WHERE deja de matchear para el otro, asi
+        | que ambos terminan leyendo el mismo valor.
+        */
         DB::table('tickets_configs')->insertOrIgnore([
             'name' => 'qr_secret',
             'value' => $secret,
@@ -58,6 +66,16 @@ class QrPayload
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        DB::table('tickets_configs')
+            ->where('name', 'qr_secret')
+            ->where(function ($query) {
+                $query->whereNull('value')->orWhere('value', '');
+            })
+            ->update([
+                'value' => $secret,
+                'updated_at' => now(),
+            ]);
 
         // Se relee porque otra peticion concurrente pudo insertar primero.
         return (string) DB::table('tickets_configs')->where('name', 'qr_secret')->value('value');
