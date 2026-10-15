@@ -67,11 +67,7 @@ async function submit() {
 <template>
     <div class="auth">
         <header class="auth__head">
-            <h1 class="h3 fw-bold mb-1">Ingresa a tu cuenta</h1>
-            <p class="text-muted-2 mb-4">
-                Ingresa con tu DNI. Si ya compraste entradas, tu DNI es el que
-                registraste.
-            </p>
+            <h1 class="h3 fw-bold mb-4">Ingresa a tu cuenta</h1>
         </header>
 
         <form novalidate @submit.prevent="submit">
@@ -86,10 +82,6 @@ async function submit() {
                     :class="{ 'is-invalid': error }"
                     placeholder="10.222.333"
                 >
-                <div class="form-text">
-                    El personal del evento ingresa con el email que le dio la
-                    organizacion.
-                </div>
             </div>
 
             <div class="mb-3">
@@ -120,9 +112,10 @@ async function submit() {
 .auth {
     width: 100%;
     max-width: 420px;
+    margin: 0 auto;
 }
 
 .auth__head {
-    margin-bottom: 1.5rem;
+    margin-bottom: 0;
 }
 </style>

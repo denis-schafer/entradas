@@ -178,6 +178,7 @@ async function submit() {
 .auth {
     width: 100%;
     max-width: 480px;
+    margin: 0 auto;
 }
 
 .auth__head {
