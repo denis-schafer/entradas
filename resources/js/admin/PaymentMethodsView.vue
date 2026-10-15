@@ -79,6 +79,7 @@ const validateFrom = ref('');
 const validateTo = ref('');
 const validateEvent = ref(null);   // null = cuenta global
 const copied = ref('');
+const qrSecret = ref(false);       // firma de los QR (config global)
 
 function isMask(value) {
     return typeof value === 'string' && value.startsWith(BULLET);
@@ -349,7 +350,25 @@ function connectMpEvent(eventId) {
     window.location.href = `/tickets-admin/config/mp-authorize-url?event_id=${eventId}`;
 }
 
-onMounted(load);
+/*
+ * La firma de los QR no es de un proveedor en particular: es una clave global
+ * del sistema. Vive aca porque es una credencial de cobro y el backend la
+ * enmascara como "__set__" igual que el resto.
+ */
+async function loadQrSecret() {
+    try {
+        const { data } = await api.get('tickets-admin/config');
+
+        qrSecret.value = Boolean(data.find((c) => c.name === 'qr_secret')?.value);
+    } catch {
+        // Si falla, queda en "sin configurar".
+    }
+}
+
+onMounted(() => {
+    load();
+    loadQrSecret();
+});
 </script>
 
 <template>
@@ -368,6 +387,27 @@ onMounted(load);
         </div>
 
         <div v-else class="d-flex flex-column gap-3">
+            <section class="et-surface-raised p-3">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="fw-semibold small">Firma de los QR</span>
+                    <span
+                        class="et-badge"
+                        :class="qrSecret ? 'et-badge--success' : 'et-badge--warning'"
+                    >
+                        <i
+                            class="bi me-1"
+                            :class="qrSecret ? 'bi-check-circle-fill' : 'bi-dash-circle'"
+                        ></i>
+                        {{ qrSecret ? 'Configurada' : 'Sin configurar' }}
+                    </span>
+                </div>
+                <p class="form-text small mb-0 mt-2">
+                    Clave con la que se firman los QR. La genera el sistema en el
+                    primer QR emitido, por eso puede figurar "sin configurar" hasta
+                    que exista una orden pagada.
+                </p>
+            </section>
+
             <section
                 v-for="method in methods"
                 :key="method.code"

@@ -32,19 +32,14 @@ const form = reactive({
     capacity: '',
     cover_image: '',
     status: 'draft',
-    /*
-    * La config de pago (MercadoPago, Multipago...) ya no se edita aca: vive en
-    * el modulo "Medios de pago". Este formulario solo muestra un resumen.
-    */
 });
 
-const mpHasClientId = ref(false);
-const mpConnected = ref(false);
-const mpConnecting = ref(false);
-const testingEventMp = ref(false);
-// El evento no tiene token propio pero hay token de la plataforma: cobra la
-// cuenta de la plataforma.
-const mpUsesPlatform = ref(false);
+/*
+ * Los medios de pago NO se configuran aca: viven en el modulo "Medios de pago".
+ * Este formulario solo muestra de un vistazo con que medios cobra el evento,
+ * resueltos por el backend (EventPaymentMethods::forEvent).
+ */
+const paymentMethods = ref([]);
 
 const types = ref([]);
 const loading = ref(false);
@@ -107,12 +102,8 @@ async function load() {
                 : value;
         });
 
-        // El show() devuelve mp_connected: lo usamos para pintar el badge.
-        mpConnected.value = Boolean(data.mp_connected);
-
-        // Sin token propio pero con token de plataforma: el evento cobra con
-        // la cuenta de la plataforma.
-        mpUsesPlatform.value = Boolean(data.uses_platform_account);
+        // Medios de pago con los que termina cobrando el evento (solo lectura).
+        paymentMethods.value = data.payment_methods || [];
 
         types.value = (data.ticket_types || []).map((t) => ({
             ...t,
@@ -237,63 +228,6 @@ async function uploadTypeImage(event, target) {
         uploadingType.value = false;
         event.target.value = '';
     }
-}
-
-/*
- * Conectar via OAuth: redirige a MP pasando event_id, MP devuelve al callback
- * con code, el backend intercambia el code por access_token y lo guarda en
- * tickets_events.mp_access_token.
- */
-async function connectMp() {
-    mpConnecting.value = true;
-
-    try {
-        const { data } = await api.get('tickets-admin/config/mp-authorize-url', {
-            event_id: Number(props.id),
-        });
-
-        window.location.href = data.url;
-    } catch (err) {
-        toast(toError(err).message, 'danger');
-        mpConnecting.value = false;
-    }
-}
-
-/*
- * Llama a MP con el access_token guardado del evento: sirve para confirmar que
- * el token que cargo el organizador sigue operativo.
- */
-async function testEventMp() {
-    if (!mpConnected.value) {
-        toast('No hay token de MercadoPago para este evento.', 'warning');
-
-        return;
-    }
-
-    testingEventMp.value = true;
-
-    try {
-        const { data } = await api.post(
-            'tickets-admin/config/mp-test',
-            { event_id: Number(props.id) },
-        );
-
-        const origin = data.source === 'stored' ? 'Token guardado del evento' : 'Token de la cuenta';
-
-        if (data.ok) {
-            toast(`${origin} operativo (${data.token_prefix}). MP respondio correctamente.`, 'success');
-        } else {
-            toast(`${origin} fallo (${data.token_prefix}): ${data.message}`, 'danger');
-        }
-    } catch (err) {
-        toast(toError(err).message, 'danger');
-    } finally {
-        testingEventMp.value = false;
-    }
-}
-
-function goPaymentMethods() {
-    emit('navigate', 'payment-methods');
 }
 
 function publish() {
@@ -438,26 +372,7 @@ function money(value) {
     }).format(Number(value || 0));
 }
 
-async function loadMpStatus() {
-    if (isNew.value) {
-        return;
-    }
-
-    try {
-        const { data } = await api.get('tickets-admin/config/mp-status', {
-            params: { event_id: Number(props.id) },
-        });
-
-        mpHasClientId.value = Boolean(data.has_client_id);
-    } catch {
-        // Si falla, dejamos el estado en "no OAuth disponible".
-    }
-}
-
-onMounted(async () => {
-    await load();
-    await loadMpStatus();
-});
+onMounted(load);
 </script>
 
 <template>
@@ -836,99 +751,43 @@ onMounted(async () => {
                     </section>
 
                     <section v-if="!isNew" class="et-surface-raised p-3 mb-3">
-                        <h2 class="h6 fw-bold mb-3">Medios de pago</h2>
+                        <h2 class="h6 fw-bold mb-2">Medios de pago</h2>
 
                         <p class="small text-muted-2 mb-2">
-                            La configuracion de cobro (MercadoPago, Multipago...)
-                            se administra en el modulo
-                            <strong>Medios de pago</strong>. Aca solo se ve el
-                            estado.
+                            Aca no se configura nada: es solo un resumen de con
+                            que medios cobra este evento. El alta y las
+                            credenciales se hacen en el modulo
+                            <strong>Medios de pago</strong>.
                         </p>
 
-                        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
-                            <span
-                                v-if="mpConnected"
-                                class="et-badge et-badge--success"
-                            >
-                                Conectado a MercadoPago
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span class="et-badge et-badge--success">
+                                <i class="bi bi-cash me-1"></i>Efectivo
                             </span>
+
                             <span
-                                v-else-if="mpUsesPlatform"
+                                v-for="method in paymentMethods"
+                                :key="`${method.code}:${method.variant || ''}`"
                                 class="et-badge et-badge--info"
+                                :title="method.subtitle"
                             >
-                                Cobra con la cuenta de la plataforma
-                            </span>
-                            <span v-else class="et-badge et-badge--warning">
-                                Sin medio de pago configurado
+                                <i
+                                    class="bi me-1"
+                                    :class="method.code === 'mercadopago' ? 'bi-bank' : 'bi-qr-code-scan'"
+                                ></i>
+                                {{ method.name }}
                             </span>
                         </div>
 
                         <p
-                            v-if="mpConnected"
-                            class="small mt-2 mb-2"
-                            style="color: var(--et-text-muted)"
-                        >
-                            Los cobros de este evento caen en la cuenta de MP
-                            conectada para el evento.
-                        </p>
-                        <p
-                            v-else-if="mpUsesPlatform"
-                            class="small mt-2 mb-2"
-                            style="color: var(--et-info, #0d6efd)"
-                        >
-                            <i class="bi bi-info-circle me-1"></i>
-                            El evento no tiene cuenta propia: los cobros caen en
-                            la cuenta de la plataforma (tambien se administra en
-                            el modulo).
-                        </p>
-                        <p
-                            v-else
-                            class="small mt-2 mb-2"
+                            v-if="!paymentMethods.length"
+                            class="small mt-2 mb-0"
                             style="color: var(--et-warning, #b8860b)"
                         >
                             <i class="bi bi-exclamation-triangle me-1"></i>
-                            Mientras no haya un medio habilitado, los compradores
-                            no podran pagar este evento.
+                            Solo se puede cobrar en efectivo: los compradores
+                            no tendran medios de pago online para este evento.
                         </p>
-
-                        <div class="btn-toolbar gap-2 mt-3">
-                            <button
-                                type="button"
-                                class="btn btn-et-primary btn-sm"
-                                @click="goPaymentMethods"
-                            >
-                                <i class="bi bi-credit-card me-1"></i>
-                                Ir a Medios de pago
-                            </button>
-
-                            <button
-                                v-if="mpConnected"
-                                type="button"
-                                class="btn btn-et-ghost btn-sm"
-                                :disabled="testingEventMp"
-                                @click="testEventMp"
-                            >
-                                <span
-                                    v-if="testingEventMp"
-                                    class="spinner-border spinner-border-sm me-1"
-                                ></span>
-                                Probar MP
-                            </button>
-
-                            <button
-                                v-if="!mpConnected && mpHasClientId"
-                                type="button"
-                                class="btn btn-et-ghost btn-sm"
-                                :disabled="mpConnecting"
-                                @click="connectMp"
-                            >
-                                <span
-                                    v-if="mpConnecting"
-                                    class="spinner-border spinner-border-sm me-1"
-                                ></span>
-                                Conectar cuenta de MP
-                            </button>
-                        </div>
                     </section>
 
                     <section class="et-surface-raised p-3">

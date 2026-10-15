@@ -3,8 +3,7 @@
  * Configuracion general.
  *
  * Identidad y mensajes del portal. Las credenciales de pago (MercadoPago,
- * Multipago) se administran en "Medios de pago", no aca. Se muestra el estado
- * de qr_secret, que nunca se devuelve en claro al navegador.
+ * Multipago, firma de los QR) se administran en "Medios de pago", no aca.
  *
  * Al final van las herramientas de mantenimiento: modo test y blanqueo de la
  * base de datos.
@@ -25,8 +24,6 @@ const uploading = ref('');
 const toggling = ref(false);
 const resetting = ref(false);
 
-const READ_ONLY_SECRETS = ['qr_secret'];
-
 // El nombre de la fila es la clave real del backend, asi que se muestra
 // traducido en pantalla pero no se renombra: cambiarlo seria cambiar el
 // contrato que lee el portal.
@@ -38,7 +35,6 @@ const LABELS = {
     welcome_message: 'Mensaje de bienvenida',
     success_message: 'Mensaje de pago aprobado',
     rejection_message: 'Mensaje de pago rechazado',
-    qr_secret: 'Firma de los QR',
 };
 
 const GROUPS = [
@@ -62,20 +58,6 @@ function label(config) {
     return LABELS[config?.name] || config?.name || '';
 }
 
-/**
- * Un secreto cargado llega como "__set__" porque el backend nunca devuelve el
- * valor. O sea que "__set__" ES la señal de "esta configurado"; tomarlo como
- * "sin configurar" hacia que mpConnected() diera false con la cuenta ya
- * conectada y que el panel mostrara "Sin configurar" en secretos reales.
- */
-function isSet(config) {
-    if (!config) {
-        return false;
-    }
-
-    return config.value === '__set__' || Boolean(config.value);
-}
-
 function draft(name) {
     return drafts.value[name] ?? '';
 }
@@ -97,8 +79,6 @@ const visibleGroups = computed(() => GROUPS.map((group) => ({
     fields: group.names.map(byName).filter(Boolean),
 })).filter((group) => group.fields.length));
 
-const secretRows = computed(() => READ_ONLY_SECRETS.map((name) => byName(name)).filter(Boolean));
-
 async function load() {
     try {
         const { data } = await api.get('tickets-admin/config');
@@ -108,11 +88,6 @@ async function load() {
         const initial = {};
 
         data.forEach((config) => {
-            if (READ_ONLY_SECRETS.includes(config.name)) {
-                // qr_secret: ni se muestra ni se edita.
-                return;
-            }
-
             initial[config.name] = config.value ?? '';
         });
 
@@ -291,37 +266,6 @@ onMounted(async () => {
         </div>
 
         <template v-else>
-            <!-- Seguridad: solo el estado de la firma de los QR -->
-            <section class="et-surface-raised p-3 mb-3">
-                <div class="mb-3">
-                    <h3 class="h6 fw-bold mb-1">Seguridad</h3>
-                    <p class="small text-muted-2 mb-0">
-                        Las credenciales de pago (MercadoPago, Multipago) se administran
-                        en <strong>Medios de pago</strong>.
-                    </p>
-                </div>
-
-                <div class="row g-2">
-                    <div v-for="config in secretRows" :key="config.id" class="col-12 col-md-4">
-                        <div class="secret">
-                            <div class="small text-faint">{{ label(config) }}</div>
-                            <div class="small">
-                                <i
-                                    class="bi me-1"
-                                    :class="isSet(config) ? 'bi-check-circle-fill text-success' : 'bi-dash-circle'"
-                                ></i>
-                                {{ isSet(config) ? 'Configurado' : 'Sin configurar' }}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <p class="form-text mt-2 mb-0">
-                    qr_secret se genera solo en el primer QR firmado, asi que puede figurar
-                    "sin configurar" hasta que exista una orden pagada.
-                </p>
-            </section>
-
             <!-- Campos editables -->
             <section v-for="group in visibleGroups" :key="group.title" class="et-surface-raised p-3 mb-3">
                 <h3 class="h6 fw-bold mb-0">{{ group.title }}</h3>
@@ -485,13 +429,6 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.secret {
-    padding: 0.5rem 0.7rem;
-    border: 1px solid var(--et-border);
-    border-radius: var(--et-radius-sm);
-    background: var(--et-surface);
-}
-
 .logo-preview {
     max-width: 200px;
     max-height: 72px;
