@@ -22,6 +22,14 @@ import { toast } from '../ui/toast.js';
 
 const emit = defineEmits(['logged-in', 'navigate']);
 
+// Se declaran aunque no se usen: el PortalShell las pasa por v-bind (junto con
+// los params de ruta) y, si no fueran props, Vue las volcaria como atributos
+// sueltos en el DOM.
+defineProps({
+    user: { type: Object, default: null },
+    config: { type: Object, default: () => ({}) },
+});
+
 const form = reactive({ identifier: '', password: '' });
 const error = ref('');
 const busy = ref(false);
@@ -121,10 +129,9 @@ async function submit() {
 
 <style scoped>
 .auth {
-    min-height: 100vh;
-    min-height: 100dvh;
     display: grid;
     place-items: center;
+    padding: 2.5rem 0 3.5rem;
 }
 
 .auth__card {

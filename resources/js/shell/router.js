@@ -151,4 +151,46 @@ export function forgetOrder(orderId = null) {
     }
 }
 
+/* ---------------------------------------------------------------------------
+| A donde volver despues de iniciar sesion
+| ---------------------------------------------------------------------------
+|
+| El visitante puede estar mirando un evento sin sesion y tocar "Comprar": ahi
+| se lo manda al login. Para que no pierda el evento que eligio, se guarda la
+| pantalla destino en sessionStorage y el login la consume una sola vez al
+| entrar. Es el mismo truco que la orden pendiente, por la misma razon: la URL
+| nunca cambia, asi que el estado tiene que viajar en el storage de la pestaña.
+*/
+const REDIRECT_KEY = 'et:post-login-redirect';
+
+export function rememberRedirect(route) {
+    try {
+        sessionStorage.setItem(REDIRECT_KEY, JSON.stringify({
+            name: route.name,
+            params: route.params ?? {},
+        }));
+    } catch {
+        // Sin storage no hay destino que recordar: el login igual funciona y
+        // cae en el listado.
+    }
+}
+
+export function consumeRedirect() {
+    try {
+        const raw = sessionStorage.getItem(REDIRECT_KEY);
+
+        if (!raw) {
+            return null;
+        }
+
+        sessionStorage.removeItem(REDIRECT_KEY);
+
+        const parsed = JSON.parse(raw);
+
+        return parsed?.name ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
 export const useRoute = computed(() => ({ name: state.name, params: state.params }));

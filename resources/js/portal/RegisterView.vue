@@ -10,6 +10,13 @@ import { toast } from '../ui/toast.js';
 
 const emit = defineEmits(['logged-in', 'navigate']);
 
+// Declaradas para que el v-bind del PortalShell (user, config, params) no se
+// vuelque como atributos sueltos en el DOM.
+defineProps({
+    user: { type: Object, default: null },
+    config: { type: Object, default: () => ({}) },
+});
+
 const form = reactive({
     name: '',
     email: '',
@@ -180,10 +187,9 @@ async function submit() {
 
 <style scoped>
 .auth {
-    min-height: 100vh;
-    min-height: 100dvh;
     display: grid;
     place-items: center;
+    padding: 2.5rem 0 3.5rem;
 }
 
 .auth__card {

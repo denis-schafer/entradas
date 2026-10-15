@@ -9,13 +9,17 @@
  * <component :is> cambia solo, sin que la URL se mueva nunca de
  * http://entradas.test.
  *
- * Este shell solo se monta con sesion de comprador: el login vive en la raiz
- * (ver app.js). Por eso no hay redireccion a login ni guardas de sesion aca.
+ * Este shell se monta con o sin sesion. Sin sesion el visitante igual navega el
+ * catalogo de eventos; el login y el registro son dos pantallas mas del mapa
+ * (login/register) y sus acciones se delegan a la raiz via @logged-in. Las
+ * secciones que exigen cuenta (mis entradas, mis compras, mi cuenta) no se
+ * ofrecen hasta que hay sesion.
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute, go, defineRoutes } from './router.js';
 import { destroyRealtime, realtimeState } from '../realtime.js';
 import api from '../api.js';
+import AuthScreen from '../ui/AuthScreen.vue';
 import EventListView from '../portal/EventListView.vue';
 import EventDetailView from '../portal/EventDetailView.vue';
 import PaymentView from '../portal/PaymentView.vue';
@@ -24,9 +28,10 @@ import MyTicketsView from '../portal/MyTicketsView.vue';
 import MyOrdersView from '../portal/MyOrdersView.vue';
 import ProfileView from '../portal/ProfileView.vue';
 import PaymentNotice from '../portal/PaymentNotice.vue';
+import RegisterView from '../portal/RegisterView.vue';
 
-defineProps({
-    user: { type: Object, required: true },
+const props = defineProps({
+    user: { type: Object, default: null },
 });
 
 const emit = defineEmits(['logged-out', 'logged-in']);
@@ -56,11 +61,18 @@ const VIEWS = {
     'my-tickets': MyTicketsView,
     'my-orders': MyOrdersView,
     profile: ProfileView,
+    login: AuthScreen,
+    register: RegisterView,
 };
 
 defineRoutes(VIEWS);
 
 const currentView = computed(() => VIEWS[route.value.name] || EventListView);
+
+const isGuest = computed(() => !props.user);
+
+// En el login/registro el boton "Ingresar" del encabezado sobra: ya se esta ahi.
+const isAuthScreen = computed(() => ['login', 'register'].includes(route.value.name));
 
 async function loadConfig() {
     try {
@@ -121,6 +133,7 @@ onBeforeUnmount(() => {
                         Eventos
                     </button>
                     <button
+                        v-if="!isGuest"
                         class="portal__link"
                         :class="{ 'is-on': ['my-tickets', 'order-result'].includes(route.name) }"
                         @click="go('my-tickets')"
@@ -128,6 +141,7 @@ onBeforeUnmount(() => {
                         Mis entradas
                     </button>
                     <button
+                        v-if="!isGuest"
                         class="portal__link"
                         :class="{ 'is-on': route.name === 'my-orders' }"
                         @click="go('my-orders')"
@@ -137,13 +151,23 @@ onBeforeUnmount(() => {
                 </nav>
 
                 <div class="portal__actions">
-                    <button class="btn btn-et-ghost btn-sm" @click="go('profile')">
-                        <i class="bi bi-person-circle me-1"></i>
-                        <span class="d-none d-sm-inline">{{ user.name.split(' ')[0] }}</span>
-                    </button>
+                    <template v-if="!isGuest">
+                        <button class="btn btn-et-ghost btn-sm" @click="go('profile')">
+                            <i class="bi bi-person-circle me-1"></i>
+                            <span class="d-none d-sm-inline">{{ user.name.split(' ')[0] }}</span>
+                        </button>
 
-                    <button class="btn btn-et-ghost btn-sm" title="Cerrar sesion" @click="logout">
-                        <i class="bi bi-box-arrow-right"></i>
+                        <button class="btn btn-et-ghost btn-sm" title="Cerrar sesion" @click="logout">
+                            <i class="bi bi-box-arrow-right"></i>
+                        </button>
+                    </template>
+
+                    <button
+                        v-else-if="!isAuthScreen"
+                        class="btn btn-et-primary btn-sm"
+                        @click="go('login')"
+                    >
+                        <i class="bi bi-box-arrow-in-right me-1"></i>Ingresar
                     </button>
 
                     <button class="portal__burger" aria-label="Menu" @click="menuOpen = !menuOpen">
@@ -154,12 +178,18 @@ onBeforeUnmount(() => {
 
             <div v-if="menuOpen" class="portal__mobile">
                 <button class="portal__link" @click="go('events')">Eventos</button>
-                <button class="portal__link" @click="go('my-tickets')">Mis entradas</button>
-                <button class="portal__link" @click="go('my-orders')">Mis compras</button>
-                <button class="portal__link" @click="go('profile')">Mi cuenta</button>
-                <button class="portal__link portal__link--danger" @click="logout">
-                    <i class="bi bi-box-arrow-right me-1"></i>Cerrar sesión
-                </button>
+                <template v-if="!isGuest">
+                    <button class="portal__link" @click="go('my-tickets')">Mis entradas</button>
+                    <button class="portal__link" @click="go('my-orders')">Mis compras</button>
+                    <button class="portal__link" @click="go('profile')">Mi cuenta</button>
+                    <button class="portal__link portal__link--danger" @click="logout">
+                        <i class="bi bi-box-arrow-right me-1"></i>Cerrar sesión
+                    </button>
+                </template>
+                <template v-else>
+                    <button class="portal__link" @click="go('login')">Ingresar</button>
+                    <button class="portal__link" @click="go('register')">Crear cuenta</button>
+                </template>
             </div>
         </header>
 

@@ -4,12 +4,10 @@ import { createApp, defineComponent, ref, computed, onMounted, nextTick, h } fro
 import api, { setUnauthorizedHandler } from './api.js';
 import { initRealtime } from './realtime.js';
 import { startSessionWatch } from './sessionWatch.js';
-import { go, useRoute, defineRoutes, readPendingOrder } from './shell/router.js';
+import { go, useRoute, defineRoutes, readPendingOrder, consumeRedirect } from './shell/router.js';
 import ToastHost from './ui/ToastHost.vue';
 import ConfirmDialog from './ui/ConfirmDialog.vue';
 import SessionCountdownModal from './ui/SessionCountdownModal.vue';
-import AuthScreen from './ui/AuthScreen.vue';
-import RegisterView from './portal/RegisterView.vue';
 import PublicEntryView from './portal/PublicEntryView.vue';
 import PortalShell from './shell/PortalShell.vue';
 import AdminShell from './shell/AdminShell.vue';
@@ -20,18 +18,19 @@ import AdminShell from './shell/AdminShell.vue';
  * Toda la app se sirve en http://entradas.test y no hay router de URL: esto
  * consulta la sesion una vez y decide que montar. Tres estados:
  *
- *   sin sesion  -> un unico login (AuthScreen)
+ *   sin sesion  -> PortalShell (catalogo). El login/registro son pantallas del
+ *                  portal; solo se piden al querer comprar o entrar a la cuenta.
  *   comprador   -> PortalShell
  *   admin       -> AdminShell
  *
- * El login esta aca y no dentro de los shells a proposito: es UNA pantalla, sin
- * selector de modo. El backend acepta email o DNI en el mismo campo y devuelve
- * is_admin; la raiz monta el panel o el portal segun eso, no segun lo que el
- * usuario haya elegido en un formulario.
+ * El login vive dentro del PortalShell (ver PortalShell.vue) para que un
+ * visitante pueda ver los eventos sin cuenta. La raiz conserva el handler de
+ * sesion porque es quien decide, segun is_admin, si el shell que corresponde es
+ * el panel o el portal.
  */
 const Root = defineComponent({
     name: 'Root',
-    components: { PortalShell, AdminShell, ToastHost, ConfirmDialog, SessionCountdownModal, AuthScreen, RegisterView },
+    components: { PortalShell, AdminShell, ToastHost, ConfirmDialog, SessionCountdownModal },
     setup() {
         const loading = ref(true);
         const user = ref(null);
@@ -44,8 +43,8 @@ const Root = defineComponent({
         | montar AdminShell. Con este flag se fuerza PortalShell y se limpia
         | de la URL para que el parametro no quede persistente al refrescar.
         |
-        | Si no hay sesion, el flag no hace nada: lo que ve un visitante sin
-        | login es la pantalla de login, no el portal.
+        | Si no hay sesion, el flag no hace nada: un visitante sin login ya ve
+        | PortalShell (el catalogo), asi que forzarlo no cambia nada.
         */
         const forcePortal = ref(
             new URLSearchParams(window.location.search).get('as') === 'portal'
@@ -107,16 +106,27 @@ function entryTokenFromPath() {
     return match ? match[1] : null;
 }
 
+/**
+ * El visitante sin sesion ve el portal (catalogo) o la vista publica de una
+ * venta. La ruta 'entrada' es la unica que se monta a pantalla completa, fuera
+ * del PortalShell, porque es un link suelto de WhatsApp y no lleva navegacion.
+ *
+ * El token del path adelanta la decision solo mientras la ruta sigue en
+ * 'loading' (primer render, antes del go inicial): asi el link no parpadea el
+ * portal. Una vez que hay un nombre de ruta, manda la ruta: si el visitante
+ * toca "Ingresar a mi cuenta" desde la entrada, tiene que ver el login y no
+ * quedarse pegado en la entrada (el token sigue en la barra de direcciones).
+ */
 const anonView = computed(() => {
-    if (route.value.name === 'register') {
-        return 'register';
-    }
-
     if (route.value.name === 'entrada') {
         return 'entrada';
     }
 
-    return 'auth';
+    if (route.value.name === 'loading' && entryToken.value) {
+        return 'entrada';
+    }
+
+    return 'portal';
 });
 
         function handleLoggedIn(loggedUser) {
@@ -145,7 +155,17 @@ const anonView = computed(() => {
                 // esa orden en vez del listado. La URL seguia siendo la misma.
                 const pending = readPendingOrder();
 
-                go(pending ? 'order-result' : 'events', pending || {});
+                if (pending) {
+                    go('order-result', pending);
+
+                    return;
+                }
+
+                // Si el login vino de tocar "Comprar" sin sesion, se vuelve al
+                // evento que estaba mirando para no perder la eleccion.
+                const redirect = consumeRedirect();
+
+                go(redirect ? redirect.name : 'events', redirect?.params || {});
             });
         }
 
@@ -157,6 +177,24 @@ const anonView = computed(() => {
 
         function handleNavigate(name) {
             go(name);
+        }
+
+        /**
+         * El PortalShell reenvia el evento 'logged-in' de sus pantallas. Hay dos
+         * casos bien distintos:
+         *   - login/registro: el usuario pasa de anonimo a autenticado, y hay que
+         *     resolver shell y navegacion (handleLoggedIn).
+         *   - "Mi cuenta" cambia el nombre: ya hay sesion, solo se actualiza el
+         *     usuario para que el encabezado no muestre el viejo.
+         */
+        function handlePortalLoggedIn(updated) {
+            if (!user.value) {
+                handleLoggedIn(updated);
+
+                return;
+            }
+
+            user.value = updated;
         }
 
         /**
@@ -265,7 +303,7 @@ const anonView = computed(() => {
                 return;
             }
 
-            go(user.value?.is_admin ? 'dashboard' : 'login');
+            go(user.value?.is_admin ? 'dashboard' : 'events');
         });
 
         return {
@@ -274,9 +312,11 @@ const anonView = computed(() => {
             route,
             isAnonymous,
             anonView,
+            entryToken,
             forcePortal,
             handleLoggedIn,
             handleLoggedOut,
+            handlePortalLoggedIn,
             handleNavigate,
             handleSignOut,
         };
@@ -289,25 +329,32 @@ const anonView = computed(() => {
             ]);
         }
 
+        /*
+        | Sin sesion: el visitante navega el catalogo dentro del PortalShell. El
+        | unico caso a pantalla completa es /e/{token}, el link de una venta que
+        | no lleva navegacion.
+        */
         if (this.isAnonymous) {
-            return h('div', { class: 'root-anon' }, [
-                this.anonView === 'register'
-                    ? h(RegisterView, {
-                        key: 'register',
-                        onLoggedIn: this.handleLoggedIn,
+            if (this.anonView === 'entrada') {
+                return h('div', { class: 'root-anon' }, [
+                    h(PublicEntryView, {
+                        key: 'entrada',
+                        token: this.entryToken || this.route.params.token || '',
                         onNavigate: this.handleNavigate,
-                    })
-                    : this.anonView === 'entrada'
-                        ? h(PublicEntryView, {
-                            key: 'entrada',
-                            token: this.route.params.token || '',
-                            onNavigate: this.handleNavigate,
-                        })
-                        : h(AuthScreen, {
-                            key: 'auth',
-                            onLoggedIn: this.handleLoggedIn,
-                            onNavigate: this.handleNavigate,
-                        }),
+                    }),
+                    h(ToastHost),
+                    h(ConfirmDialog),
+                ]);
+            }
+
+            return h('div', [
+                h(PortalShell, {
+                    key: 'portal',
+                    user: null,
+                    onLoggedOut: this.handleLoggedOut,
+                    onLoggedIn: this.handlePortalLoggedIn,
+                    onNavigate: this.handleNavigate,
+                }),
                 h(ToastHost),
                 h(ConfirmDialog),
             ]);
@@ -327,9 +374,7 @@ const anonView = computed(() => {
                     onLoggedOut: this.handleLoggedOut,
                     // Mi cuenta puede cambiar el nombre: la raiz guarda el usuario
                     // nuevo para que el shell no vuelva a mostrar el viejo.
-                    onLoggedIn: (updated) => {
-                        this.user = updated;
-                    },
+                    onLoggedIn: this.handlePortalLoggedIn,
                     onNavigate: this.handleNavigate,
                 }),
             h(ToastHost),

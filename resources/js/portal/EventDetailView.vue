@@ -14,7 +14,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
 import { listen, startPolling, stopPolling } from '../realtime.js';
-import { rememberOrder } from '../shell/router.js';
+import { rememberOrder, rememberRedirect } from '../shell/router.js';
 import { toast } from '../ui/toast.js';
 import EmptyState from '../ui/EmptyState.vue';
 import AdSlot from './AdSlot.vue';
@@ -159,6 +159,21 @@ function formatTime(value) {
 
 function goToCheckout() {
     if (!canCheckout.value || buying.value) {
+        return;
+    }
+
+    /*
+    | Sin sesion no se puede crear la orden (el endpoint pide comprador
+    | autenticado). En vez de dejar que el 401 rebote y mande al login sin
+    | contexto, se recuerda el evento que estaba mirando y se lo lleva al login;
+    | al entrar, la raiz vuelve a esta misma pantalla.
+    */
+    if (!props.user) {
+        rememberRedirect({ name: 'event', params: { slug: props.slug } });
+        toast('Ingresa para comprar tus entradas.', 'info');
+
+        emit('navigate', 'login');
+
         return;
     }
 
@@ -411,7 +426,7 @@ onBeforeUnmount(() => {
 
             <button class="btn btn-et-primary" :disabled="!canCheckout || buying" @click="goToCheckout">
                 <span v-if="buying" class="spinner-border spinner-border-sm me-2"></span>
-                {{ buying ? 'Preparando el pago…' : 'Comprar' }}
+                {{ buying ? 'Preparando el pago…' : (user ? 'Comprar' : 'Ingresá para comprar') }}
                 <i v-if="!buying" class="bi bi-arrow-right ms-1"></i>
             </button>
         </div>
