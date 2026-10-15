@@ -71,8 +71,11 @@ const currentView = computed(() => VIEWS[route.value.name] || EventListView);
 
 const isGuest = computed(() => !props.user);
 
-// En el login/registro el boton "Ingresar" del encabezado sobra: ya se esta ahi.
-const isAuthScreen = computed(() => ['login', 'register'].includes(route.value.name));
+// Los botones del header hacen de navegacion entre login y registro: no hace
+// falta repetir el enlace dentro de cada pantalla. En el login se ofrece "Crear
+// cuenta" y en el registro "Ingresar"; en el resto del catalogo, los dos.
+const showLoginAction = computed(() => isGuest.value && route.value.name !== 'login');
+const showRegisterAction = computed(() => isGuest.value && route.value.name !== 'register');
 
 async function loadConfig() {
     try {
@@ -162,12 +165,12 @@ onBeforeUnmount(() => {
                         </button>
                     </template>
 
-                    <template v-else-if="!isAuthScreen">
-                        <button class="btn btn-et-ghost btn-sm" @click="go('login')">
+                    <template v-else>
+                        <button v-if="showLoginAction" class="btn btn-et-ghost btn-sm" @click="go('login')">
                             Ingresar
                         </button>
 
-                        <button class="btn btn-et-primary btn-sm" @click="go('register')">
+                        <button v-if="showRegisterAction" class="btn btn-et-primary btn-sm" @click="go('register')">
                             Crear cuenta
                         </button>
                     </template>
@@ -189,8 +192,8 @@ onBeforeUnmount(() => {
                     </button>
                 </template>
                 <template v-else>
-                    <button class="portal__link" @click="go('login')">Ingresar</button>
-                    <button class="portal__link" @click="go('register')">Crear cuenta</button>
+                    <button v-if="showLoginAction" class="portal__link" @click="go('login')">Ingresar</button>
+                    <button v-if="showRegisterAction" class="portal__link" @click="go('register')">Crear cuenta</button>
                 </template>
             </div>
         </header>

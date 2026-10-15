@@ -66,86 +66,63 @@ async function submit() {
 
 <template>
     <div class="auth">
-        <div class="auth__card et-surface-raised">
-            <div class="auth__mark"></div>
-
-            <h1 class="h4 fw-bold mb-1">Ingresa a tu cuenta</h1>
+        <header class="auth__head">
+            <h1 class="h3 fw-bold mb-1">Ingresa a tu cuenta</h1>
             <p class="text-muted-2 mb-4">
                 Ingresa con tu DNI. Si ya compraste entradas, tu DNI es el que
                 registraste.
             </p>
+        </header>
 
-            <form novalidate @submit.prevent="submit">
-                <div class="mb-3">
-                    <label class="form-label" for="identifier">DNI</label>
-                    <input
-                        id="identifier"
-                        v-model="form.identifier"
-                        type="text"
-                        autocomplete="username"
-                        class="form-control"
-                        :class="{ 'is-invalid': error }"
-                        placeholder="10.222.333"
-                    >
-                    <div class="form-text">
-                        El personal del evento ingresa con el email que le dio la
-                        organizacion.
-                    </div>
+        <form novalidate @submit.prevent="submit">
+            <div class="mb-3">
+                <label class="form-label" for="identifier">DNI</label>
+                <input
+                    id="identifier"
+                    v-model="form.identifier"
+                    type="text"
+                    autocomplete="username"
+                    class="form-control"
+                    :class="{ 'is-invalid': error }"
+                    placeholder="10.222.333"
+                >
+                <div class="form-text">
+                    El personal del evento ingresa con el email que le dio la
+                    organizacion.
                 </div>
+            </div>
 
-                <div class="mb-3">
-                    <label class="form-label" for="password">Contrasena</label>
-                    <input
-                        id="password"
-                        v-model="form.password"
-                        type="password"
-                        autocomplete="current-password"
-                        class="form-control"
-                        :class="{ 'is-invalid': error }"
-                    >
-                </div>
+            <div class="mb-3">
+                <label class="form-label" for="password">Contrasena</label>
+                <input
+                    id="password"
+                    v-model="form.password"
+                    type="password"
+                    autocomplete="current-password"
+                    class="form-control"
+                    :class="{ 'is-invalid': error }"
+                >
+            </div>
 
-                <p v-if="error" class="small mb-3" style="color: var(--et-danger)">
-                    <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
-                </p>
-
-                <button class="btn btn-et-primary w-100" type="submit" :disabled="!canSubmit || busy">
-                    <span v-if="busy" class="spinner-border spinner-border-sm me-2"></span>
-                    Ingresar
-                </button>
-            </form>
-
-            <hr class="et-divider my-4">
-
-            <p class="text-muted-2 small mb-0 text-center">
-                Todavia no tenes cuenta?
-                <button class="btn btn-link btn-sm p-0 align-baseline" @click="emit('navigate', 'register')">
-                    Crear una
-                </button>
+            <p v-if="error" class="small mb-3" style="color: var(--et-danger)">
+                <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
             </p>
-        </div>
+
+            <button class="btn btn-et-primary" type="submit" :disabled="!canSubmit || busy">
+                <span v-if="busy" class="spinner-border spinner-border-sm me-2"></span>
+                Ingresar
+            </button>
+        </form>
     </div>
 </template>
 
 <style scoped>
 .auth {
-    flex: 1;
-    display: flex;
-    padding: 1rem 0;
+    width: 100%;
+    max-width: 420px;
 }
 
-.auth__card {
-    width: min(420px, 100%);
-    padding: 2rem 1.75rem;
-    border-radius: var(--et-radius-lg);
-    margin: auto;
-}
-
-.auth__mark {
-    width: 42px;
-    height: 42px;
-    border-radius: 13px;
-    background: linear-gradient(135deg, var(--et-primary), var(--et-accent));
-    margin-bottom: 1.25rem;
+.auth__head {
+    margin-bottom: 1.5rem;
 }
 </style>

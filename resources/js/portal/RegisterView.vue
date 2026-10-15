@@ -75,13 +75,12 @@ async function submit() {
 
 <template>
     <div class="auth">
-        <div class="auth__card et-surface-raised">
-            <div class="auth__mark"></div>
-
-            <h1 class="h4 fw-bold mb-1">Creá tu cuenta</h1>
+        <header class="auth__head">
+            <h1 class="h3 fw-bold mb-1">Crea tu cuenta</h1>
             <p class="text-muted-2 mb-4">Tus entradas quedan siempre a mano con tu DNI.</p>
+        </header>
 
-            <form novalidate @submit.prevent="submit">
+        <form novalidate @submit.prevent="submit">
                 <div class="row g-3">
                     <div class="col-12">
                         <label class="form-label" for="name">Nombre y apellido</label>
@@ -167,43 +166,22 @@ async function submit() {
                     <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
                 </p>
 
-                <button class="btn btn-et-primary w-100 mt-3" type="submit" :disabled="!canSubmit || busy">
+                <button class="btn btn-et-primary mt-3" type="submit" :disabled="!canSubmit || busy">
                     <span v-if="busy" class="spinner-border spinner-border-sm me-2"></span>
                     Crear cuenta
                 </button>
             </form>
-
-            <hr class="et-divider my-4">
-
-            <p class="text-muted-2 small mb-0 text-center">
-                Ya tenes cuenta?
-                <button class="btn btn-link btn-sm p-0 align-baseline" @click="emit('navigate', 'login')">
-                    Ingresar
-                </button>
-            </p>
         </div>
     </div>
 </template>
 
 <style scoped>
 .auth {
-    flex: 1;
-    display: flex;
-    padding: 1rem 0;
+    width: 100%;
+    max-width: 480px;
 }
 
-.auth__card {
-    width: min(480px, 100%);
-    padding: 2rem 1.75rem;
-    border-radius: var(--et-radius-lg);
-    margin: auto;
-}
-
-.auth__mark {
-    width: 42px;
-    height: 42px;
-    border-radius: 13px;
-    background: linear-gradient(135deg, var(--et-primary), var(--et-accent));
-    margin-bottom: 1.25rem;
+.auth__head {
+    margin-bottom: 1.5rem;
 }
 </style>
