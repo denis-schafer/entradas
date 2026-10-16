@@ -122,9 +122,6 @@ onMounted(load);
                                 ></span>
                                 {{ ticket.type_name }}
                             </p>
-                            <p v-if="ticket.number != null" class="eticket__number mb-2 numeric">
-                                <i class="bi bi-gift me-1"></i>N° {{ ticket.number }} para el sorteo
-                            </p>
                             <p v-if="ticket.used_at" class="small text-faint mb-0 numeric">
                                 <i class="bi bi-check2-circle me-1"></i>
                                 Usada el {{ new Date(ticket.used_at).toLocaleString('es-AR') }}
@@ -187,12 +184,6 @@ onMounted(load);
     align-items: center;
     gap: 0.45rem;
     color: var(--et-text-muted);
-    font-size: 0.875rem;
-}
-
-.eticket__number {
-    color: var(--et-primary);
-    font-weight: 700;
     font-size: 0.875rem;
 }
 

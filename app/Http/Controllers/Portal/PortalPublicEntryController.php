@@ -83,7 +83,7 @@ class PortalPublicEntryController extends Controller
             abort(404);
         }
 
-        // El numero de sorteo viaja dentro del SVG: asi aparece en la vista
+        // El numero de la entrada viaja dentro del SVG: asi aparece en la vista
         // publica del link y en el archivo si el comprador lo descarga.
         $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
 

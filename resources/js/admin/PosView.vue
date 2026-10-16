@@ -1148,7 +1148,7 @@ onUnmounted(() => {
 
 .pos__receipt-tickets img {
     width: 110px;
-    height: 110px;
+    height: auto;
 }
 
 .pos__share {

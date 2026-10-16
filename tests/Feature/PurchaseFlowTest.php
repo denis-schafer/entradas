@@ -1566,7 +1566,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $this->assertArrayNotHasKey('buyer_user_id', $view->json('order'));
         $this->assertArrayNotHasKey('buyer_email', $view->json('order'));
 
-        // El publico tambien ve el numero de sorteo de cada entrada.
+        // El publico tambien ve el numero de la entrada.
         $this->assertArrayHasKey('number', $view->json('tickets.0'));
 
         // El QR se sirve en SVG, que es lo que ve el comprador y escanea la puerta.
@@ -1574,15 +1574,53 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $qr->assertOk();
         $this->assertStringContainsString('image/svg+xml', $qr->headers->get('Content-Type'));
 
-        // Y el numero de sorteo queda dibujado dentro del propio SVG, para que
-        // tambien aparezca en el archivo que el comprador descarga o imprime.
+        // Y el numero de la entrada queda dibujado dentro del propio SVG, para
+        // que tambien aparezca en el archivo que el comprador descarga o imprime.
         $ticketNumber = DB::table('tickets_tickets')->where('id', $ticketId)->value('number');
         $this->assertNotNull($ticketNumber);
         $this->assertStringContainsString('N° '.$ticketNumber, $qr->getContent());
+        // Sin referencia al sorteo: puede no haber ninguno y el numero igual existe.
+        $this->assertStringNotContainsString('para el sorteo', $qr->getContent());
 
         // Y el archivo SPA se sirve sobre el path del link (la pagina que
         // monta la vista publica).
         $this->get("/e/{$token}")->assertOk()->assertSee('id="app"', false);
+    }
+
+    /**
+     * El QR que sirve el panel (reimpresion y comprobante del POS) lleva el
+     * numero de la entrada dibujado debajo, sin la palabra "sorteo".
+     */
+    public function test_el_qr_del_panel_lleva_el_numero_de_la_entrada(): void
+    {
+        [$admin, $eventId, $typeId] = $this->publishEvent();
+        $seller = $this->seller();
+        $this->assignEvents($seller, [$eventId]);
+        $buyer = $this->buyer();
+
+        $sale = $this->actingAs($seller)->postJson('/tickets-admin/pos/sales', [
+            'event_id' => $eventId,
+            'buyer_id' => $buyer->id,
+            'items' => [['ticket_type_id' => $typeId, 'qty' => 1]],
+        ]);
+        $sale->assertStatus(201);
+
+        $ticketId = $sale->json('tickets.0.id');
+        $number = DB::table('tickets_tickets')->where('id', $ticketId)->value('number');
+        $this->assertNotNull($number);
+
+        // Reimpresion desde el panel.
+        $this->actingAs($admin)
+            ->get("/tickets-admin/tickets/{$ticketId}/qr.svg")
+            ->assertOk()
+            ->assertSee('N° '.$number, false)
+            ->assertDontSee('para el sorteo', false);
+
+        // Comprobante del POS.
+        $this->actingAs($seller)
+            ->get("/tickets-admin/pos/tickets/{$ticketId}/qr.svg")
+            ->assertOk()
+            ->assertSee('N° '.$number, false);
     }
 
     /**

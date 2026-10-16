@@ -24,9 +24,9 @@ class QrRenderer
 {
     /**
      * @param  string|null  $caption  Texto que se dibuja debajo del QR (por
-     *                                ejemplo el numero de sorteo de la entrada).
-     *                                Va dentro del propio SVG para que tambien
-     *                                aparezca en el archivo que se descarga.
+     *                                ejemplo el numero de la entrada). Va dentro
+     *                                del propio SVG para que tambien aparezca en
+     *                                el archivo que se descarga.
      */
     public static function svg(string $payload, int $size = 400, ?string $caption = null): string
     {

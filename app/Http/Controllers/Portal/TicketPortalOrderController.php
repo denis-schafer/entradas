@@ -285,7 +285,7 @@ public function myTicketQr(Request $request, int $ticketId)
         abort(404);
     }
 
-    // El numero de sorteo viaja dentro del SVG para que tambien quede en el
+    // El numero de la entrada viaja dentro del SVG para que tambien quede en el
     // archivo que el comprador descarga o imprime.
     $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
 

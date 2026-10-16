@@ -282,7 +282,11 @@ class TicketsMercadoPagoController extends Controller
             abort(404);
         }
 
-        return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400)), 200, [
+        // Debajo del QR va el numero de la entrada, para reimprimir desde el
+        // panel con el numero a la vista.
+        $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
+
+        return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400), $caption), 200, [
             'Content-Type' => 'image/svg+xml',
             // El QR es la prueba de entrada: no debe quedar en una cache compartida.
             'Cache-Control' => 'private, max-age=300',

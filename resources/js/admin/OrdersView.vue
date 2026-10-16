@@ -581,7 +581,7 @@ table th {
 
 .ticket__qr {
     width: 64px;
-    height: 64px;
+    height: auto;
     background: #fff;
     padding: 0.25rem;
     border-radius: 4px;
