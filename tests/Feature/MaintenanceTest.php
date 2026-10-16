@@ -112,6 +112,33 @@ class MaintenanceTest extends TestCase
         $this->assertSame(2, DB::table('tickets_payment_methods')->count());
     }
 
+    /**
+     * Regresion de deploy: volver a correr los seeders no puede apagar un medio
+     * de pago que el operador habilito desde el panel. El updateOrInsert viejo
+     * ponia `enabled` al default (Multipago apagado) en cada corrida.
+     */
+    public function test_reejecutar_los_seeders_no_pisa_los_medios_de_pago(): void
+    {
+        $multipagoId = (int) DB::table('tickets_payment_methods')->where('code', 'multipago')->value('id');
+
+        DB::table('tickets_payment_methods')->where('id', $multipagoId)->update([
+            'enabled' => 1,
+            'config' => json_encode(['bersacode' => '1234']),
+            'updated_at' => now(),
+        ]);
+
+        $this->seed();
+
+        $row = DB::table('tickets_payment_methods')->where('id', $multipagoId)->first();
+
+        // Sigue prendido y con su configuracion: el seeder no lo pisa.
+        $this->assertSame(1, (int) $row->enabled);
+        $this->assertSame('1234', json_decode((string) $row->config, true)['bersacode']);
+
+        // Y no duplica filas.
+        $this->assertSame(2, DB::table('tickets_payment_methods')->count());
+    }
+
     public function test_el_admin_blanqueado_puede_iniciar_sesion(): void
     {
         $admin = $this->admin();
