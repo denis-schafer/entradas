@@ -60,14 +60,20 @@ class TicketOrderService
             | otra cosa. El orden evento -> tipo de entrada es fijo para no
             | invertir locks entre transacciones.
             */
-            DB::table('tickets_events')
+            $lockedEvent = DB::table('tickets_events')
                 ->where('id', $event->id)
                 ->lockForUpdate()
                 ->first();
 
-            $nextNumber = (int) DB::table('tickets_tickets')
+            $maxNumber = DB::table('tickets_tickets')
                 ->where('event_id', $event->id)
-                ->max('number') + 1;
+                ->max('number');
+
+            // La primera entrada arranca en el numero configurado del evento;
+            // despues sigue el correlativo.
+            $nextNumber = $maxNumber === null
+                ? (int) ($lockedEvent->ticket_number_start ?? 1)
+                : ((int) $maxNumber + 1);
 
             /*
             | El control de stock se repite DENTRO de la transaccion, con

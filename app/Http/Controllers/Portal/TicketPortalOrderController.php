@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Realtime;
 use App\Services\TicketOrderService;
 use App\Support\QrRenderer;
+use App\Support\TicketNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -274,7 +275,7 @@ public function myTicketQr(Request $request, int $ticketId)
         ->where('t.id', $ticketId)
         ->where('o.buyer_user_id', $buyer['id'])
         ->where('o.status', 'paid')
-        ->first(['t.number', 't.uuid', 't.qr_payload', 't.status']);
+        ->first(['t.number', 't.event_id', 't.uuid', 't.qr_payload', 't.status']);
 
     if (! $ticket || empty($ticket->qr_payload)) {
         abort(404);
@@ -286,8 +287,8 @@ public function myTicketQr(Request $request, int $ticketId)
     }
 
     // El numero de la entrada viaja dentro del SVG para que tambien quede en el
-    // archivo que el comprador descarga o imprime.
-    $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
+    // archivo que el comprador descarga o imprime, con el ancho configurado.
+    $caption = TicketNumber::caption($ticket->number === null ? null : (int) $ticket->number, (int) $ticket->event_id);
 
     return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400), $caption), 200, [
         'Content-Type' => 'image/svg+xml',

@@ -30,6 +30,8 @@ const form = reactive({
     ends_at: '',
     location: '',
     capacity: '',
+    ticket_number_start: 1,
+    ticket_number_pad: 1,
     cover_image: '',
     status: 'draft',
 });
@@ -50,6 +52,15 @@ const uploading = ref(false);
 const uploadingType = ref(false);
 
 const canSave = computed(() => form.name.trim().length > 0 && !saving.value);
+
+/* Ejemplo vivo de como saldran los numeros con el inicio y el ancho cargados. */
+const numberPreview = computed(() => {
+    const toInt = (v, fallback) => (v === '' || v == null ? fallback : Number(v));
+    const start = toInt(form.ticket_number_start, 1);
+    const pad = Math.max(1, toInt(form.ticket_number_pad, 1));
+
+    return `${String(start).padStart(pad, '0')}, ${String(start + 1).padStart(pad, '0')}...`;
+});
 
 const STATUSES = [
     { value: 'draft', label: 'Borrador (no visible en el portal)' },
@@ -138,6 +149,8 @@ async function save() {
         ends_at: toIso(form.ends_at),
         location: form.location || null,
         capacity: form.capacity ? Number(form.capacity) : null,
+        ticket_number_start: (form.ticket_number_start === '' || form.ticket_number_start == null) ? 1 : Number(form.ticket_number_start),
+        ticket_number_pad: (form.ticket_number_pad === '' || form.ticket_number_pad == null) ? 1 : Number(form.ticket_number_pad),
         cover_image: form.cover_image || null,
         status: form.status,
     };
@@ -438,6 +451,42 @@ onMounted(load);
                                 min="1"
                                 class="form-control"
                             >
+                        </div>
+
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="ticket_number_start">Primer número de entrada</label>
+                            <input
+                                id="ticket_number_start"
+                                v-model="form.ticket_number_start"
+                                type="number"
+                                min="0"
+                                class="form-control"
+                                :disabled="!isNew"
+                            >
+                        </div>
+
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="ticket_number_pad">Dígitos (ceros a la izquierda)</label>
+                            <input
+                                id="ticket_number_pad"
+                                v-model="form.ticket_number_pad"
+                                type="number"
+                                min="1"
+                                max="18"
+                                class="form-control"
+                                :disabled="!isNew"
+                            >
+                        </div>
+
+                        <div class="col-12">
+                            <div class="form-text">
+                                <template v-if="isNew">
+                                    Las entradas se numeran {{ numberPreview }}. No se puede cambiar despues de crear el evento.
+                                </template>
+                                <template v-else>
+                                    Numeración: {{ numberPreview }} (se define al crear el evento).
+                                </template>
+                            </div>
                         </div>
                     </div>
                 </section>

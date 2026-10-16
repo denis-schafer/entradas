@@ -11,6 +11,7 @@ use App\Services\Payments\PaymentSetupException;
 use App\Services\TicketOrderService;
 use App\Support\PaymentMethodFilter;
 use App\Support\QrRenderer;
+use App\Support\TicketNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -417,7 +418,7 @@ class TicketsPosController extends Controller
         }
 
         // Debajo del QR va el numero de la entrada, para el comprobante impreso.
-        $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
+        $caption = TicketNumber::caption($ticket->number === null ? null : (int) $ticket->number, (int) $ticket->event_id);
 
         return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400), $caption), 200, [
             'Content-Type' => 'image/svg+xml',

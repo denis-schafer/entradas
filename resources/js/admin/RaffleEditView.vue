@@ -11,7 +11,7 @@
  * solo se lo revela con una animacion. La ventana publica hace lo propio al
  * recibir el aviso por websocket.
  */
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import api, { toError } from '../api.js';
 import { toast } from '../ui/toast.js';
 import confirm from '../ui/confirm.js';
@@ -152,8 +152,6 @@ async function load() {
             winner_name: p.winner_name,
             drawn_at: p.drawn_at,
         }));
-
-        await loadEligible();
     } catch (err) {
         error.value = toError(err).message;
     } finally {
@@ -161,19 +159,58 @@ async function load() {
     }
 }
 
-async function loadEligible() {
-    if (isNew.value || !raffle.value) {
+/*
+| El resumen se arma con los filtros que se estan editando, no con los
+| guardados: por eso pide un preview al backend en vez de leer el sorteo. Se
+| debouncea porque cada tecla dispara un intento.
+*/
+let eligibleTimer = null;
+
+async function refreshEligible() {
+    if (!form.event_id) {
+        eligibleCount.value = null;
+
         return;
     }
 
+    const toIntOrNull = (v) => (v === '' || v == null) ? null : Number(v);
+
     try {
-        const { data } = await api.get(`tickets-admin/raffles/${raffle.value.id}/eligible`);
+        const { data } = await api.post('tickets-admin/raffles/eligible-preview', {
+            event_id: Number(form.event_id),
+            number_from: toIntOrNull(form.number_from),
+            number_to: toIntOrNull(form.number_to),
+            date_from: toIso(form.date_from),
+            date_to: toIso(form.date_to),
+            payment_methods: [...form.payment_methods],
+            only_paid: form.only_paid,
+            include_used: form.include_used,
+            include_cancelled: form.include_cancelled,
+            allow_repeat_winners: form.allow_repeat_winners,
+            raffle_id: raffle.value?.id ?? null,
+        });
 
         eligibleCount.value = data.count;
     } catch {
         eligibleCount.value = null;
     }
 }
+
+function scheduleEligible() {
+    clearTimeout(eligibleTimer);
+    eligibleTimer = setTimeout(refreshEligible, 350);
+}
+
+// Cualquier cambio en el universo de entradas recalcula el resumen en vivo.
+watch(
+    () => [
+        form.event_id, form.number_from, form.number_to, form.date_from, form.date_to,
+        form.payment_methods, form.only_paid, form.include_used, form.include_cancelled,
+        form.allow_repeat_winners,
+    ],
+    scheduleEligible,
+    { deep: true },
+);
 
 function addPrize() {
     prizes.value.push(blankPrize());
@@ -270,16 +307,20 @@ async function revealDraw(winner) {
         phase: 'spinning',
     };
 
+    // El numero que llega del backend ya viene formateado con el ancho del
+    // evento; la ruleta gira con ese mismo ancho.
+    const width = winner.ticket_number != null ? String(winner.ticket_number).length : 4;
+
     const started = Date.now();
     const duration = 2400;
 
     while (Date.now() - started < duration) {
-        anim.value.display = String(Math.floor(Math.random() * 9999) + 1).padStart(4, '0');
+        anim.value.display = String(Math.floor(Math.random() * (10 ** width - 1)) + 1).padStart(width, '0');
         await sleep(55);
     }
 
     anim.value.display = winner.ticket_number != null
-        ? String(winner.ticket_number).padStart(4, '0')
+        ? String(winner.ticket_number)
         : '—';
     anim.value.phase = 'revealed';
 
@@ -304,7 +345,7 @@ async function drawPrize(prize) {
         prize.winner_name = winner.winner_name;
         prize.drawn_at = new Date().toISOString();
 
-        await loadEligible();
+        await refreshEligible();
     } catch (err) {
         toast(toError(err).message, 'danger');
     } finally {
@@ -334,7 +375,7 @@ async function resetPrize(prize) {
         prize.drawn_at = null;
 
         toast('Premio reinicializado', 'success');
-        await loadEligible();
+        await refreshEligible();
     } catch (err) {
         toast(toError(err).message, 'danger');
     } finally {
@@ -353,6 +394,7 @@ function openProjector() {
 onMounted(load);
 onBeforeUnmount(() => {
     anim.value = null;
+    clearTimeout(eligibleTimer);
 });
 </script>
 
@@ -549,10 +591,10 @@ onBeforeUnmount(() => {
                         </div>
 
                         <button
-                            v-if="!isNew"
+                            v-if="form.event_id"
                             type="button"
                             class="btn btn-et-ghost w-100 mt-2"
-                            @click="loadEligible"
+                            @click="refreshEligible"
                         >
                             <i class="bi bi-arrow-clockwise me-1"></i>Recalcular entradas
                         </button>

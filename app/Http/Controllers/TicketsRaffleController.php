@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Realtime;
 use App\Support\DateInput;
 use App\Support\PaymentMethodFilter;
+use App\Support\TicketNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -164,6 +165,51 @@ class TicketsRaffleController extends Controller
         return response()->json(['count' => $count, 'sample' => $sample]);
     }
 
+    /**
+     * Cuantas entradas entrarian en juego con los filtros que el operador esta
+     * editando (todavia sin guardar). Es lo que hace que el resumen del sorteo
+     * se actualice mientras se configura, tambien en uno nuevo.
+     */
+    public function eligiblePreview(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'event_id' => ['required', 'integer', 'exists:tickets_events,id'],
+            'number_from' => ['nullable', 'integer', 'min:1'],
+            'number_to' => ['nullable', 'integer', 'min:1', 'gte:number_from'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'payment_methods' => ['nullable', 'array'],
+            'payment_methods.*' => ['string', 'in:'.implode(',', self::PAYMENT_METHOD_VALUES)],
+            'only_paid' => ['sometimes', 'boolean'],
+            'include_used' => ['sometimes', 'boolean'],
+            'include_cancelled' => ['sometimes', 'boolean'],
+            'allow_repeat_winners' => ['sometimes', 'boolean'],
+            // Si se esta editando un sorteo ya guardado, sus ganadores previos
+            // tambien se descuentan del pool.
+            'raffle_id' => ['nullable', 'integer'],
+        ]);
+
+        $this->assertEventAllowed($request, (int) $validated['event_id']);
+
+        $dates = DateInput::normalize($validated, ['date_from', 'date_to']);
+
+        $filters = (object) [
+            'id' => $validated['raffle_id'] ?? null,
+            'event_id' => (int) $validated['event_id'],
+            'only_paid' => $validated['only_paid'] ?? true,
+            'include_used' => $validated['include_used'] ?? true,
+            'include_cancelled' => $validated['include_cancelled'] ?? false,
+            'allow_repeat_winners' => $validated['allow_repeat_winners'] ?? false,
+            'number_from' => $validated['number_from'] ?? null,
+            'number_to' => $validated['number_to'] ?? null,
+            'date_from' => $dates['date_from'] ?? null,
+            'date_to' => $dates['date_to'] ?? null,
+            'payment_methods' => json_encode(array_values($validated['payment_methods'] ?? [])),
+        ];
+
+        return response()->json(['count' => $this->eligibleQuery($filters)->count()]);
+    }
+
     public function draw(Request $request, int $id, int $prizeId): JsonResponse
     {
         $raffle = $this->findScoped($request, $id);
@@ -229,7 +275,10 @@ class TicketsRaffleController extends Controller
                 'position' => (int) $prize->position,
                 'prize_name' => $prize->name,
                 'ticket_id' => (int) $winner->id,
-                'ticket_number' => $winner->number === null ? null : (int) $winner->number,
+                'ticket_number' => TicketNumber::format(
+                    $winner->number === null ? null : (int) $winner->number,
+                    TicketNumber::padForEvent((int) $locked->event_id),
+                ),
                 'winner_name' => $winner->winner_name,
             ];
         });
@@ -561,6 +610,11 @@ class TicketsRaffleController extends Controller
      */
     private function prizesWithWinners(int $raffleId)
     {
+        // El numero se muestra con el ancho con ceros configurado en el evento.
+        $pad = TicketNumber::padForEvent(
+            (int) DB::table('tickets_raffles')->where('id', $raffleId)->value('event_id') ?: null
+        );
+
         return DB::table('tickets_raffle_prizes as p')
             ->leftJoin('tickets_tickets as t', 'p.winner_ticket_id', '=', 't.id')
             ->leftJoin('tickets_orders as o', 't.order_id', '=', 'o.id')
@@ -571,7 +625,15 @@ class TicketsRaffleController extends Controller
                 'p.winner_ticket_id', 'p.drawn_at',
                 't.number as ticket_number',
                 'o.buyer_name as winner_name',
-            ]);
+            ])
+            ->map(function ($row) use ($pad) {
+                $row->ticket_number = TicketNumber::format(
+                    $row->ticket_number === null ? null : (int) $row->ticket_number,
+                    $pad,
+                );
+
+                return $row;
+            });
     }
 
     private function findScoped(Request $request, int $id): ?object

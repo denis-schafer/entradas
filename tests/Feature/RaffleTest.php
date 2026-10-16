@@ -122,6 +122,77 @@ class RaffleTest extends TestCase
         );
     }
 
+    public function test_la_numeracion_arranca_en_el_numero_configurado_y_se_muestra_con_ceros(): void
+    {
+        $admin = $this->admin(['email' => 'admin-'.uniqid().'@test.local']);
+
+        $eventId = $this->actingAs($admin)->postJson('/tickets-admin/events', [
+            'name' => 'Numerado '.uniqid(),
+            'starts_at' => now()->addMonth()->toDateTimeString(),
+            'status' => 'published',
+            'ticket_number_start' => 300,
+            'ticket_number_pad' => 7,
+        ])->assertCreated()->json('id');
+
+        $typeId = $this->actingAs($admin)->postJson("/tickets-admin/events/{$eventId}/ticket-types", [
+            'name' => 'General',
+            'price' => 5000,
+            'stock' => 100,
+            'max_per_order' => 10,
+            'payment_mode' => 'both',
+            'max_installments' => 1,
+            'enable' => true,
+        ])->assertCreated()->json('id');
+
+        $this->sell($eventId, $typeId, 2);
+
+        // Arranca en el numero configurado (no en 1) y sigue el correlativo.
+        $this->assertSame(
+            [300, 301],
+            DB::table('tickets_tickets')->where('event_id', $eventId)->orderBy('number')->pluck('number')->all()
+        );
+
+        // El QR publico dibuja el numero con los 7 digitos configurados.
+        $ticketId = DB::table('tickets_tickets')->where('event_id', $eventId)->orderBy('number')->value('id');
+        $token = DB::table('tickets_orders')->where('event_id', $eventId)->value('public_token');
+        $qr = $this->get("/tickets-portal/api/public/entry/{$token}/{$ticketId}/qr.svg");
+        $qr->assertOk();
+        $this->assertStringContainsString('N° 0000300', $qr->getContent());
+
+        // El sorteo revela el numero formateado igual que el QR.
+        $raffleId = $this->raffle($admin, $eventId);
+        $prizeId = DB::table('tickets_raffle_prizes')->where('raffle_id', $raffleId)->value('id');
+        $winner = $this->actingAs($admin)
+            ->postJson("/tickets-admin/raffles/{$raffleId}/prizes/{$prizeId}/draw")
+            ->assertOk()
+            ->json('winner.ticket_number');
+
+        $this->assertContains($winner, ['0000300', '0000301']);
+    }
+
+    public function test_la_numeracion_no_se_puede_cambiar_al_editar_el_evento(): void
+    {
+        $admin = $this->admin(['email' => 'admin-'.uniqid().'@test.local']);
+
+        $eventId = $this->actingAs($admin)->postJson('/tickets-admin/events', [
+            'name' => 'Fijo '.uniqid(),
+            'status' => 'draft',
+            'ticket_number_start' => 50,
+            'ticket_number_pad' => 4,
+        ])->assertCreated()->json('id');
+
+        // El update ignora estos campos: la numeracion se fija al crear.
+        $this->actingAs($admin)->putJson("/tickets-admin/events/{$eventId}", [
+            'name' => 'Fijo editado',
+            'ticket_number_start' => 1,
+            'ticket_number_pad' => 1,
+        ])->assertOk();
+
+        $event = DB::table('tickets_events')->where('id', $eventId)->first();
+        $this->assertSame(50, (int) $event->ticket_number_start);
+        $this->assertSame(4, (int) $event->ticket_number_pad);
+    }
+
     // ------------------------------------------------------------------- CRUD
 
     public function test_el_admin_crea_un_sorteo_con_sus_premios(): void
@@ -240,6 +311,34 @@ class RaffleTest extends TestCase
 
     // -------------------------------------------------------------- sorteo
 
+    public function test_el_preview_de_elegibles_usa_los_filtros_sin_guardar(): void
+    {
+        [$admin, $eventId, $typeId] = $this->event();
+
+        // Numeros 1..2 (efectivo) y 3..5 (mercadopago).
+        $this->sell($eventId, $typeId, 2, ['payment_method' => 'efectivo']);
+        $this->sell($eventId, $typeId, 3, ['payment_method' => 'mercadopago']);
+
+        // Filtro por medio de pago, sin haber creado ningun sorteo.
+        $preview = $this->actingAs($admin)->postJson('/tickets-admin/raffles/eligible-preview', [
+            'event_id' => $eventId,
+            'payment_methods' => ['efectivo'],
+        ])->assertOk();
+        $this->assertSame(2, $preview->json('count'));
+
+        // Rango de numeros sobre todas las pagas.
+        $preview = $this->actingAs($admin)->postJson('/tickets-admin/raffles/eligible-preview', [
+            'event_id' => $eventId,
+            'number_from' => 1,
+            'number_to' => 4,
+        ])->assertOk();
+        $this->assertSame(4, $preview->json('count'));
+
+        // Sin evento no hay universo que calcular.
+        $this->actingAs($admin)->postJson('/tickets-admin/raffles/eligible-preview', [])
+            ->assertStatus(422);
+    }
+
     public function test_sortear_elige_una_entrada_y_registra_auditoria(): void
     {
         [$admin, $eventId, $typeId] = $this->event();
@@ -253,10 +352,10 @@ class RaffleTest extends TestCase
             ->assertOk();
 
         $winnerNumber = $draw->json('winner.ticket_number');
-        $this->assertContains($winnerNumber, [1, 2, 3, 4]);
+        $this->assertContains((int) $winnerNumber, [1, 2, 3, 4]);
 
         $this->assertSame(
-            DB::table('tickets_tickets')->where('event_id', $eventId)->where('number', $winnerNumber)->value('id'),
+            DB::table('tickets_tickets')->where('event_id', $eventId)->where('number', (int) $winnerNumber)->value('id'),
             DB::table('tickets_raffle_prizes')->where('id', $prizeId)->value('winner_ticket_id')
         );
 
@@ -385,7 +484,7 @@ class RaffleTest extends TestCase
         $state = $this->getJson("/tickets-portal/api/public/raffle/{$token}")->assertOk();
 
         $this->assertSame('Sorteo publico', $state->json('raffle.name'));
-        $this->assertSame(1, $state->json('prizes.0.ticket_number'));
+        $this->assertSame('1', $state->json('prizes.0.ticket_number'));
         $this->assertNotNull($state->json('prizes.0.winner_name'));
     }
 

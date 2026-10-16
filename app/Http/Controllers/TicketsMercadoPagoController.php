@@ -10,6 +10,7 @@ use App\Services\Realtime;
 use App\Support\MercadoPagoToken;
 use App\Support\QrPayload;
 use App\Support\QrRenderer;
+use App\Support\TicketNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -284,7 +285,7 @@ class TicketsMercadoPagoController extends Controller
 
         // Debajo del QR va el numero de la entrada, para reimprimir desde el
         // panel con el numero a la vista.
-        $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
+        $caption = TicketNumber::caption($ticket->number === null ? null : (int) $ticket->number, (int) $ticket->event_id);
 
         return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400), $caption), 200, [
             'Content-Type' => 'image/svg+xml',

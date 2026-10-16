@@ -39,7 +39,8 @@ function isDrawn(prize) {
 }
 
 function displayNumber(prize) {
-    return prize.ticket_number != null ? String(prize.ticket_number).padStart(4, '0') : '—';
+    // El backend ya manda el numero formateado con el ancho del evento.
+    return prize.ticket_number != null ? String(prize.ticket_number) : '—';
 }
 
 function showReveal(prize) {

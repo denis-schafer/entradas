@@ -80,6 +80,14 @@ class TicketsEventController extends Controller
             'ends_at' => 'nullable|date|after_or_equal:starts_at',
             'location' => 'nullable|string|max:255',
             'capacity' => 'nullable|integer|min:1',
+            /*
+            | Numeracion de entradas: desde que numero arranca el correlativo y
+            | con cuantos digitos se muestra (con ceros a la izquierda). Se
+            | define solo al crear el evento; editarlo despues descuadraria los
+            | numeros ya emitidos.
+            */
+            'ticket_number_start' => 'nullable|integer|min:0',
+            'ticket_number_pad' => 'nullable|integer|min:1|max:18',
             'cover_image' => 'nullable|string|max:255',
             'status' => 'required|in:draft,published,closed,cancelled',
             /*
@@ -100,6 +108,8 @@ class TicketsEventController extends Controller
 
         $id = DB::table('tickets_events')->insertGetId([
             ...$validated,
+            'ticket_number_start' => (int) ($validated['ticket_number_start'] ?? 1),
+            'ticket_number_pad' => (int) ($validated['ticket_number_pad'] ?? 1),
             'slug' => $this->uniqueSlug($validated['name']),
             'created_at' => now(),
             'updated_at' => now(),

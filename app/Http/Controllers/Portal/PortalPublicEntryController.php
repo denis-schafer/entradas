@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
 use App\Support\QrRenderer;
+use App\Support\TicketNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -77,7 +78,7 @@ class PortalPublicEntryController extends Controller
             ->where('o.status', 'paid')
             ->where('t.id', $ticketId)
             ->where('t.status', '!=', 'cancelled')
-            ->first(['t.id', 't.number', 't.qr_payload']);
+            ->first(['t.id', 't.number', 't.event_id', 't.qr_payload']);
 
         if (! $ticket || empty($ticket->qr_payload)) {
             abort(404);
@@ -85,7 +86,7 @@ class PortalPublicEntryController extends Controller
 
         // El numero de la entrada viaja dentro del SVG: asi aparece en la vista
         // publica del link y en el archivo si el comprador lo descarga.
-        $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
+        $caption = TicketNumber::caption($ticket->number === null ? null : (int) $ticket->number, (int) $ticket->event_id);
 
         return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400), $caption), 200, [
             'Content-Type' => 'image/svg+xml',

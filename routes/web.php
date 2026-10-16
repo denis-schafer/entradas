@@ -204,6 +204,7 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             // Sorteos. Admin y administrativo (acotado a sus eventos).
             Route::get('raffles', [TicketsRaffleController::class, 'index'])->name('raffles.index');
             Route::post('raffles', [TicketsRaffleController::class, 'store'])->name('raffles.store');
+            Route::post('raffles/eligible-preview', [TicketsRaffleController::class, 'eligiblePreview'])->name('raffles.eligible-preview');
             Route::get('raffles/{id}', [TicketsRaffleController::class, 'show'])->whereNumber('id')->name('raffles.show');
             Route::put('raffles/{id}', [TicketsRaffleController::class, 'update'])->whereNumber('id')->name('raffles.update');
             Route::delete('raffles/{id}', [TicketsRaffleController::class, 'destroy'])->whereNumber('id')->name('raffles.destroy');
