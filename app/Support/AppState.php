@@ -39,6 +39,9 @@ class AppState
      * depender de foreign keys.
      */
     private const OPERATIONAL_TABLES = [
+        'tickets_raffle_draws',
+        'tickets_raffle_prizes',
+        'tickets_raffles',
         'tickets_scans',
         'tickets_tickets',
         'tickets_orders',
@@ -167,6 +170,20 @@ class AppState
                 $userMark = (int) ($marks['users'] ?? 0);
                 DB::table('tickets_orders')->where('buyer_user_id', '>', $userMark)
                     ->update(['buyer_user_id' => null]);
+            }
+
+            // Sorteos: quien los creo o sorteo puede ser un usuario de prueba
+            // que tambien se borra; se anula la referencia en las filas reales.
+            if (Schema::hasTable('tickets_raffles')) {
+                $userMark = (int) ($marks['users'] ?? 0);
+                DB::table('tickets_raffles')->where('created_by', '>', $userMark)
+                    ->update(['created_by' => null]);
+            }
+
+            if (Schema::hasTable('tickets_raffle_prizes')) {
+                $userMark = (int) ($marks['users'] ?? 0);
+                DB::table('tickets_raffle_prizes')->where('drawn_by', '>', $userMark)
+                    ->update(['drawn_by' => null]);
             }
         } finally {
             DB::statement('SET FOREIGN_KEY_CHECKS=1');

@@ -53,6 +53,23 @@ class TicketOrderService
             $event, $buyer, $items, $total, $extra, $publicToken, $qrSecret
         ) {
             /*
+            | El numero de entrada es correlativo POR EVENTO y se calcula dentro
+            | de la transaccion. La fila del evento se lockea para que dos
+            | compras simultaneas no lean el mismo "ultimo numero" y repitan;
+            | el lock del tipo de entrada (mas abajo) protege el stock, que es
+            | otra cosa. El orden evento -> tipo de entrada es fijo para no
+            | invertir locks entre transacciones.
+            */
+            DB::table('tickets_events')
+                ->where('id', $event->id)
+                ->lockForUpdate()
+                ->first();
+
+            $nextNumber = (int) DB::table('tickets_tickets')
+                ->where('event_id', $event->id)
+                ->max('number') + 1;
+
+            /*
             | El control de stock se repite DENTRO de la transaccion, con
             | lockForUpdate. Sin el lock, dos ventas que llegan con el ultimo
             | boleto al mismo tiempo leen el mismo sold_count, las dos pasan y
@@ -119,6 +136,7 @@ class TicketOrderService
                         'event_id' => $event->id,
                         'ticket_type_id' => $it['ticket_type_id'],
                         'uuid' => $uuid,
+                        'number' => $nextNumber++,
                         'qr_payload' => QrPayload::make($uuid, $qrSecret),
                         'status' => 'valid',
                         'wristband_given' => false,

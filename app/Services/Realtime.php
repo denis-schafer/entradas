@@ -120,4 +120,31 @@ class Realtime
     {
         static::dispatch(new \App\Events\UserStatusChanged($userId, $enable));
     }
+
+    /**
+     * Un premio de sorteo quedo adjudicado. Canal publico del proyector.
+     */
+    public static function raffleDrawn(
+        string $publicToken,
+        int $raffleId,
+        int $prizeId,
+        int $position,
+        ?string $prizeName,
+        ?int $ticketNumber,
+        ?string $winnerName,
+    ): void {
+        if ($publicToken === '') {
+            return;
+        }
+
+        static::dispatch(new \App\Events\RafflePrizeDrawn(
+            $publicToken,
+            $raffleId,
+            $prizeId,
+            $position,
+            $prizeName,
+            $ticketNumber,
+            $winnerName,
+        ));
+    }
 }

@@ -1478,7 +1478,7 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
 
         $me = $this->getJson('/tickets-admin/auth/me');
         $this->assertSame('administrativo', $me->json('user.role'));
-        $this->assertSame(['statistics', 'users', 'pos', 'password'], $me->json('user.routes'));
+        $this->assertSame(['statistics', 'users', 'pos', 'raffles', 'password'], $me->json('user.routes'));
 
         // Da de alta un vendedor: aunque mande rol admin, queda vendedor y solo
         // en sus eventos. El evento no asignado se descarta.

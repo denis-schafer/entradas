@@ -27,6 +27,8 @@ import AdsView from '../admin/AdsView.vue';
 import SettingsView from '../admin/SettingsView.vue';
 import PaymentMethodsView from '../admin/PaymentMethodsView.vue';
 import PasswordView from '../admin/PasswordView.vue';
+import RafflesView from '../admin/RafflesView.vue';
+import RaffleEditView from '../admin/RaffleEditView.vue';
 
 /*
 | El escaner y las estadisticas se cargan aparte a proposito: entre ZXing y
@@ -65,6 +67,8 @@ const VIEWS = {
     'payment-methods': PaymentMethodsView,
     password: PasswordView,
     statistics: StatisticsView,
+    raffles: RafflesView,
+    'raffle-edit': RaffleEditView,
 };
 
 defineRoutes(VIEWS);
@@ -84,6 +88,7 @@ const ALL_NAV = [
     { name: 'tickets', label: 'Entradas', icon: 'bi-ticket-perforated' },
     { name: 'events', label: 'Eventos', icon: 'bi-calendar-event' },
     { name: 'statistics', label: 'Estadisticas', icon: 'bi-graph-up' },
+    { name: 'raffles', label: 'Sorteos', icon: 'bi-gift' },
     { name: 'users', label: 'Usuarios', icon: 'bi-people' },
     { name: 'ads', label: 'Publicidad', icon: 'bi-megaphone' },
     { name: 'payment-methods', label: 'Medios de pago', icon: 'bi-credit-card' },
@@ -114,6 +119,7 @@ const NAV = computed(() => {
 */
 const ACTIVE_FOR = {
     'event-edit': 'events',
+    'raffle-edit': 'raffles',
 };
 
 /*

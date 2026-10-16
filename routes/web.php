@@ -16,6 +16,7 @@ use App\Http\Controllers\TicketsMultipagoController;
 use App\Http\Controllers\TicketsOrderController;
 use App\Http\Controllers\TicketsPaymentMethodController;
 use App\Http\Controllers\TicketsPosController;
+use App\Http\Controllers\TicketsRaffleController;
 use App\Http\Controllers\TicketsScanController;
 use App\Http\Controllers\TicketsStatisticsController;
 use App\Http\Controllers\TicketsTicketController;
@@ -199,6 +200,18 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             | porque el administrativo tambien da de alta vendedores.
             */
             Route::get('payment-methods/available', [TicketsPaymentMethodController::class, 'available'])->name('payment-methods.available');
+
+            // Sorteos. Admin y administrativo (acotado a sus eventos).
+            Route::get('raffles', [TicketsRaffleController::class, 'index'])->name('raffles.index');
+            Route::post('raffles', [TicketsRaffleController::class, 'store'])->name('raffles.store');
+            Route::get('raffles/{id}', [TicketsRaffleController::class, 'show'])->whereNumber('id')->name('raffles.show');
+            Route::put('raffles/{id}', [TicketsRaffleController::class, 'update'])->whereNumber('id')->name('raffles.update');
+            Route::delete('raffles/{id}', [TicketsRaffleController::class, 'destroy'])->whereNumber('id')->name('raffles.destroy');
+            Route::get('raffles/{id}/eligible', [TicketsRaffleController::class, 'eligible'])->whereNumber('id')->name('raffles.eligible');
+            Route::post('raffles/{id}/prizes/{prizeId}/draw', [TicketsRaffleController::class, 'draw'])
+                ->whereNumber(['id', 'prizeId'])->name('raffles.draw');
+            Route::post('raffles/{id}/prizes/{prizeId}/reset', [TicketsRaffleController::class, 'reset'])
+                ->whereNumber(['id', 'prizeId'])->name('raffles.reset');
         });
 
         // ------------------------------------------------------------- POS
@@ -267,12 +280,27 @@ Route::prefix('tickets-portal/api/public/entry')->name('tickets-portal.api.publi
 });
 
 /*
+| Estado publico de un sorteo para la ventana de proyeccion. La credencial del
+| path es el public_token del sorteo (UUID aleatorio) y no pide sesion ni CSRF.
+*/
+Route::get('tickets-portal/api/public/raffle/{publicToken}', [TicketsRaffleController::class, 'publicState'])
+    ->where('publicToken', '[0-9a-fA-F\-]{36}')
+    ->name('tickets-portal.api.public-raffle');
+
+/*
 | El archivo SPA se sirve tambien sobre /e/{token}, que es el path del link.
 | El frontend lee el pathname, saca el token y monta la vista publica de la
 | venta. Los assets y el cliente HTTP usan rutas absolutas, asi que servir la
 | app sobre este path no rompe nada.
 */
 Route::get('/e/{publicToken}', fn () => view('app'))->where('publicToken', '[0-9a-fA-F\-]{36}');
+
+/*
+| El proyector de un sorteo se sirve igual: /sorteo/{token} monta la SPA, que
+| lee el pathname y muestra la ventana publica de resultados. Misma idea que
+| /e/{token}: assets absolutos, sin romper nada.
+*/
+Route::get('/sorteo/{publicToken}', fn () => view('app'))->where('publicToken', '[0-9a-fA-F\-]{36}');
 
 /*
 | Catch-all defensivo. Cualquier ruta desconocida (un bookmark viejo a

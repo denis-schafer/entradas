@@ -184,6 +184,7 @@ class User extends Authenticatable
                 'statistics',
                 'users',
                 'pos',
+                'raffles',
                 'password',
             ],
             default => ['*'],

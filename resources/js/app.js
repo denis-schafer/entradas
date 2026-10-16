@@ -9,6 +9,7 @@ import ToastHost from './ui/ToastHost.vue';
 import ConfirmDialog from './ui/ConfirmDialog.vue';
 import SessionCountdownModal from './ui/SessionCountdownModal.vue';
 import PublicEntryView from './portal/PublicEntryView.vue';
+import RaffleProjectionView from './raffle/RaffleProjectionView.vue';
 import PortalShell from './shell/PortalShell.vue';
 import AdminShell from './shell/AdminShell.vue';
 
@@ -55,6 +56,14 @@ const Root = defineComponent({
         }
 
         /*
+        | Ventana publica de proyeccion de un sorteo: /sorteo/{public_token}. No
+        | lleva navegacion ni sesion (se abre en la pantalla o el proyector del
+        | evento), asi que se monta a pantalla completa apenas se conoce el
+        | token, sin esperar ni tocar el shell.
+        */
+        const projectorToken = ref(projectorTokenFromPath());
+
+        /*
         | Link de venta que el vendedor manda por WhatsApp: /e/{public_token}.
         | Se lee del pathname porque la app no tiene router de URL; al abrirlo,
         | el comprador aterriza en la vista publica de esa venta (o en "Mis
@@ -85,7 +94,7 @@ const Root = defineComponent({
             // portal y el panel son dos productos distintos y mezclarlos en la
             // misma sesion seria confuso. Con ?as=portal se fuerza el portal
             // aunque la sesion sea de admin: el tema acompanana.
-            const usePortal = forcePortal.value || !user.value?.is_admin;
+            const usePortal = forcePortal.value || projectorToken.value || !user.value?.is_admin;
 
             document.documentElement.setAttribute(
                 'data-bs-theme',
@@ -102,6 +111,16 @@ const isAnonymous = computed(() => user.value === null);
  */
 function entryTokenFromPath() {
     const match = window.location.pathname.match(/^\/e\/([0-9a-fA-F-]{36})$/);
+
+    return match ? match[1] : null;
+}
+
+/**
+ * Igual que entryTokenFromPath pero para /sorteo/{uuid}: el token del sorteo es
+ * la credencial de la ventana publica de proyeccion.
+ */
+function projectorTokenFromPath() {
+    const match = window.location.pathname.match(/^\/sorteo\/([0-9a-fA-F-]{36})$/);
 
     return match ? match[1] : null;
 }
@@ -272,6 +291,15 @@ const anonView = computed(() => {
             await nextTick();
 
             /*
+            | Ventana de proyeccion de un sorteo: se monta sola (ver render) y
+            | no participa de la navegacion del portal ni del panel. Con o sin
+            | sesion, se corta aca para no ensuciar la ruta con go().
+            */
+            if (projectorToken.value) {
+                return;
+            }
+
+            /*
             | Link de venta (/e/{token}): prioridad por sobre el home. Con
             | sesion de comprador, sus entradas ya estan en el portal; sin
             | sesion se monta la vista publica de esa venta (pide el token y
@@ -319,6 +347,7 @@ const anonView = computed(() => {
             isAnonymous,
             anonView,
             entryToken,
+            projectorToken,
             forcePortal,
             handleLoggedIn,
             handleLoggedOut,
@@ -332,6 +361,19 @@ const anonView = computed(() => {
             return h('div', { class: 'boot' }, [
                 h('div', { class: 'boot__mark' }),
                 h('p', 'Cargando…'),
+            ]);
+        }
+
+        /*
+        | Ventana publica de proyeccion (/sorteo/{token}): pantalla completa, sin
+        | sesion, sin navegacion. Va antes que todo lo demas para que tambien
+        | funcione si quien la abre tiene sesion de panel en el mismo navegador.
+        */
+        if (this.projectorToken) {
+            return h('div', { class: 'root-anon' }, [
+                h(RaffleProjectionView, { key: 'sorteo', token: this.projectorToken }),
+                h(ToastHost),
+                h(ConfirmDialog),
             ]);
         }
 
