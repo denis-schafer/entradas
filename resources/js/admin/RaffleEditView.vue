@@ -15,6 +15,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
 import { toast } from '../ui/toast.js';
 import confirm from '../ui/confirm.js';
+import MultiSelectFilter from '../ui/MultiSelectFilter.vue';
 import { PAYMENT_FILTERS } from '../paymentMethods.js';
 
 const props = defineProps({
@@ -25,7 +26,11 @@ const emit = defineEmits(['navigate']);
 
 const isNew = computed(() => !props.id);
 
-const PM_OPTIONS = PAYMENT_FILTERS.filter((o) => o.value !== '');
+// MultiSelectFilter trabaja con {id, name}: se arma desde las mismas opciones de
+// medio de pago que usa el resto del panel para no duplicar etiquetas.
+const PM_ITEMS = PAYMENT_FILTERS
+    .filter((option) => option.value !== '')
+    .map((option) => ({ id: option.value, name: option.label }));
 
 const STATUSES = [
     { value: 'draft', label: 'Borrador' },
@@ -49,6 +54,14 @@ const form = reactive({
 });
 
 const events = ref([]);
+
+/*
+| Con un solo evento asignado el selector sobra: se muestra directamente a que
+| evento pertenece el sorteo. Quien tenga varios (o el admin) sigue viendo el
+| <select>.
+*/
+const scopedEvent = computed(() => (events.value.length === 1 ? events.value[0] : null));
+
 const raffle = ref(null);
 const prizes = ref([]);
 const eligibleCount = ref(null);
@@ -359,17 +372,26 @@ onBeforeUnmount(() => {
                     <h2 class="h6 fw-bold mb-3">{{ isNew ? 'Nuevo sorteo' : 'Datos del sorteo' }}</h2>
 
                     <div class="mb-3">
-                        <label class="form-label" for="event">Evento</label>
-                        <select
-                            id="event"
-                            v-model="form.event_id"
-                            class="form-select"
-                            :class="{ 'is-invalid': invalid('event_id') }"
-                        >
-                            <option value="" disabled>Elegí un evento</option>
-                            <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
-                        </select>
-                        <div v-if="invalid('event_id')" class="invalid-feedback">{{ invalid('event_id') }}</div>
+                        <template v-if="scopedEvent">
+                            <label class="form-label">Evento</label>
+                            <p class="form-control-plaintext mb-0">
+                                <i class="bi bi-calendar-event me-1"></i>{{ scopedEvent.name }}
+                            </p>
+                        </template>
+
+                        <template v-else>
+                            <label class="form-label" for="event">Evento</label>
+                            <select
+                                id="event"
+                                v-model="form.event_id"
+                                class="form-select"
+                                :class="{ 'is-invalid': invalid('event_id') }"
+                            >
+                                <option value="" disabled>Elegí un evento</option>
+                                <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
+                            </select>
+                            <div v-if="invalid('event_id')" class="invalid-feedback">{{ invalid('event_id') }}</div>
+                        </template>
                     </div>
 
                     <div class="mb-3">
@@ -411,21 +433,16 @@ onBeforeUnmount(() => {
                 <section class="et-surface-raised p-3 mb-3">
                     <h2 class="h6 fw-bold mb-3">Medios de pago en juego</h2>
                     <p class="small text-muted-2">
-                        Marca con que medios se pagaron las entradas que participan. Sin nada marcado, entran todas.
+                        Elegi con que medios se pagaron las entradas que participan. Sin ninguno elegido, entran todas.
                     </p>
 
-                    <div class="d-flex flex-wrap gap-3">
-                        <div v-for="opt in PM_OPTIONS" :key="opt.value" class="form-check">
-                            <input
-                                :id="`pm-${opt.value}`"
-                                v-model="form.payment_methods"
-                                class="form-check-input"
-                                type="checkbox"
-                                :value="opt.value"
-                            >
-                            <label class="form-check-label" :for="`pm-${opt.value}`">{{ opt.label }}</label>
-                        </div>
-                    </div>
+                    <MultiSelectFilter
+                        v-model="form.payment_methods"
+                        :items="PM_ITEMS"
+                        placeholder="Buscar medio de pago..."
+                        none-text="Todos los medios"
+                        empty-text="Sin resultados"
+                    />
                 </section>
 
                 <section class="et-surface-raised p-3 mb-3">
