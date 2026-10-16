@@ -6,7 +6,7 @@
  * responde 422 con el detalle. La pantalla muestra ese mensaje tal cual, porque
  * es la explicacion de por que el evento sigue en la lista.
  */
-import { ref, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import api, { toError } from '../api.js';
 import StatusBadge from '../ui/StatusBadge.vue';
 import EmptyState from '../ui/EmptyState.vue';
@@ -22,6 +22,12 @@ const loading = ref(true);
 const error = ref('');
 const confirming = ref(null);
 const busyId = ref(null);
+const dragIndex = ref(null);
+const savingOrder = ref(false);
+
+// Con busqueda o filtro de estado activos, el arrastre reordenaria sobre una
+// lista parcial: se deshabilita para que el orden no quede raro.
+const canReorder = computed(() => !filters.value.search && !filters.value.status);
 
 const STATUSES = [
     { value: '', label: 'Todos' },
@@ -104,6 +110,52 @@ function goToPage(page) {
     load();
 }
 
+/* -------------------------------------------------- orden (arrastrar y soltar) */
+
+function onDragStart(index, event) {
+    if (!canReorder.value) {
+        return;
+    }
+
+    dragIndex.value = index;
+    event.dataTransfer.effectAllowed = 'move';
+    // Firefox no inicia el arrastre si no se setea algun dato.
+    event.dataTransfer.setData('text/plain', String(events.value[index].id));
+}
+
+// Se reordena en el acto mientras se arrastra, para ver el resultado en vivo.
+function onDragOver(index) {
+    if (dragIndex.value === null || dragIndex.value === index) {
+        return;
+    }
+
+    const list = events.value;
+    const [moved] = list.splice(dragIndex.value, 1);
+    list.splice(index, 0, moved);
+    dragIndex.value = index;
+}
+
+async function persistOrder() {
+    if (dragIndex.value === null) {
+        return;
+    }
+
+    dragIndex.value = null;
+    savingOrder.value = true;
+
+    try {
+        await api.post('tickets-admin/events/reorder', {
+            ids: events.value.map((e) => e.id),
+        });
+    } catch (err) {
+        toast(toError(err).message, 'danger');
+        // Si no se pudo guardar, se recarga para no quedar con un orden falso.
+        await load();
+    } finally {
+        savingOrder.value = false;
+    }
+}
+
 let searchTimer = null;
 
 watch(() => filters.value.search, () => {
@@ -161,6 +213,10 @@ onMounted(load);
             </div>
         </div>
 
+        <p v-if="!loading && events.length && !canReorder" class="small text-muted-2">
+            <i class="bi bi-info-circle me-1"></i>Limpia la busqueda y el filtro de estado para reordenar.
+        </p>
+
         <p v-if="error" class="small" style="color: var(--et-danger)">
             <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
         </p>
@@ -181,7 +237,26 @@ onMounted(load);
         </EmptyState>
 
         <div v-else class="d-flex flex-column gap-2">
-            <article v-for="event in events" :key="event.id" class="event et-surface">
+            <article
+                v-for="(event, index) in events"
+                :key="event.id"
+                class="event et-surface"
+                :class="{ 'is-dragging': dragIndex === index, 'is-reorderable': canReorder }"
+                :draggable="canReorder"
+                @dragstart="onDragStart(index, $event)"
+                @dragover.prevent="onDragOver(index)"
+                @drop.prevent="persistOrder"
+                @dragend="dragIndex = null"
+            >
+                <span
+                    class="event__handle"
+                    :class="{ 'event__handle--off': !canReorder }"
+                    :title="canReorder ? 'Arrastrar para ordenar' : ''"
+                    aria-hidden="true"
+                >
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+
                 <ImageFlyer
                     v-if="event.cover_image"
                     :src="event.cover_image"
@@ -262,15 +337,35 @@ onMounted(load);
 <style scoped>
 .event {
     display: grid;
-    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-columns: 1.25rem 96px minmax(0, 1fr);
     gap: 0.9rem;
     align-items: center;
     padding: 0.75rem 1rem;
 }
 
+.event.is-reorderable {
+    cursor: grab;
+}
+
+.event.is-dragging {
+    opacity: 0.6;
+}
+
+.event__handle {
+    display: grid;
+    place-items: center;
+    color: var(--et-text-faint);
+    font-size: 1.1rem;
+    cursor: grab;
+}
+
+.event__handle--off {
+    visibility: hidden;
+}
+
 @media (max-width: 767.98px) {
     .event {
-        grid-template-columns: 72px minmax(0, 1fr);
+        grid-template-columns: 1.25rem 72px minmax(0, 1fr);
     }
 }
 
@@ -312,7 +407,7 @@ onMounted(load);
 
 @media (min-width: 768px) {
     .event {
-        grid-template-columns: 96px minmax(0, 1fr) auto;
+        grid-template-columns: 1.25rem 96px minmax(0, 1fr) auto;
     }
 
     .event__actions {

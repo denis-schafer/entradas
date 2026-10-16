@@ -17,7 +17,9 @@ class TicketPortalEventController extends Controller
                 'e.id', 'e.name', 'e.slug', 'e.description', 'e.starts_at', 'e.ends_at',
                 'e.location', 'e.cover_image', 'e.capacity',
             ])
-            ->orderByRaw('e.starts_at is null, e.starts_at asc');
+            // Orden manual definido en el panel (arrastrar y soltar en Eventos).
+            ->orderBy('e.sort_order')
+            ->orderBy('e.id');
 
         // Separar en el propio SQL evita traer todos los eventos para paginar
         // en memoria cuando hay mucho historial.

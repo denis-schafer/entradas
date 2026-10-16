@@ -16,7 +16,9 @@ class TicketsEventController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = DB::table('tickets_events')->orderByDesc('id');
+        // Orden manual del panel (definido arrastrando y soltando en Eventos);
+        // es el mismo que usa el portal. El id solo desempata.
+        $query = DB::table('tickets_events')->orderBy('sort_order')->orderBy('id');
 
         /*
         | Un cajero, un administrativo o un vendedor solo ven los eventos que
@@ -45,6 +47,54 @@ class TicketsEventController extends Controller
         }
 
         return response()->json($query->paginate(20));
+    }
+
+    /**
+     * Guarda el orden manual de los eventos (arrastrar y soltar en el panel).
+     *
+     * Recibe los ids visibles en su nuevo orden y les permuta entre si los
+     * puestos (sort_order) que ya ocupaban: asi los eventos que no estan en la
+     * lista (otra pagina o filtrados) no se mueven.
+     */
+    public function reorder(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $ids = array_values(array_map('intval', $validated['ids']));
+
+        $query = DB::table('tickets_events')->whereIn('id', $ids);
+
+        // Un operador acotado solo puede reordenar los eventos que ve.
+        if ($request->user() && ! $request->user()->isStaffAdmin()) {
+            $query->whereIn('id', $request->user()->assignedEventIds());
+        }
+
+        if ($query->count() !== count($ids)) {
+            return response()->json(['message' => 'Alguno de los eventos no existe'], 422);
+        }
+
+        DB::transaction(function () use ($ids) {
+            $slots = DB::table('tickets_events')
+                ->whereIn('id', $ids)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->pluck('sort_order')
+                ->all();
+
+            sort($slots);
+
+            foreach ($ids as $i => $id) {
+                DB::table('tickets_events')->where('id', $id)->update([
+                    'sort_order' => $slots[$i],
+                    'updated_at' => now(),
+                ]);
+            }
+        });
+
+        return response()->json(['message' => 'Orden actualizado']);
     }
 
     public function show(int $id): JsonResponse
@@ -110,6 +160,8 @@ class TicketsEventController extends Controller
             ...$validated,
             'ticket_number_start' => (int) ($validated['ticket_number_start'] ?? 1),
             'ticket_number_pad' => (int) ($validated['ticket_number_pad'] ?? 1),
+            // Los eventos nuevos caen al final del orden manual.
+            'sort_order' => ((int) DB::table('tickets_events')->max('sort_order')) + 1,
             'slug' => $this->uniqueSlug($validated['name']),
             'created_at' => now(),
             'updated_at' => now(),

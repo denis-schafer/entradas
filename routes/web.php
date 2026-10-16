@@ -112,6 +112,7 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
             Route::post('events', [TicketsEventController::class, 'store'])->name('events.store');
             // upload va antes de {id} para que "upload" no se lea como un id.
             Route::post('events/upload', [TicketsEventController::class, 'upload'])->name('events.upload');
+            Route::post('events/reorder', [TicketsEventController::class, 'reorder'])->name('events.reorder');
             Route::get('events/{id}', [TicketsEventController::class, 'show'])->whereNumber('id')->name('events.show');
             Route::put('events/{id}', [TicketsEventController::class, 'update'])->whereNumber('id')->name('events.update');
             Route::delete('events/{id}', [TicketsEventController::class, 'destroy'])->whereNumber('id')->name('events.destroy');
