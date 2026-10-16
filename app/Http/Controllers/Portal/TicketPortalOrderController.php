@@ -174,7 +174,7 @@ class TicketPortalOrderController extends Controller
             ->where('o.status', '!=', 'cancelled')
             ->where('t.status', '!=', 'cancelled')
             ->select([
-                't.id', 't.uuid', 't.qr_payload', 't.status', 't.used_at',
+                't.id', 't.number', 't.uuid', 't.qr_payload', 't.status', 't.used_at',
                 't.wristband_given', 't.wristband_color',
                 'tt.name as type_name', 'tt.wristband_color as type_wristband_color',
                 'tt.wristband_label', 'tt.image_path as type_image_path',
@@ -274,7 +274,7 @@ public function myTicketQr(Request $request, int $ticketId)
         ->where('t.id', $ticketId)
         ->where('o.buyer_user_id', $buyer['id'])
         ->where('o.status', 'paid')
-        ->first(['t.uuid', 't.qr_payload', 't.status']);
+        ->first(['t.number', 't.uuid', 't.qr_payload', 't.status']);
 
     if (! $ticket || empty($ticket->qr_payload)) {
         abort(404);
@@ -285,7 +285,11 @@ public function myTicketQr(Request $request, int $ticketId)
         abort(404);
     }
 
-    return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400)), 200, [
+    // El numero de sorteo viaja dentro del SVG para que tambien quede en el
+    // archivo que el comprador descarga o imprime.
+    $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
+
+    return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400), $caption), 200, [
         'Content-Type' => 'image/svg+xml',
         'Cache-Control' => 'private, max-age=300',
     ]);

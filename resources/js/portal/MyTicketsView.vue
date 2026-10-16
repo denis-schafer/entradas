@@ -153,25 +153,29 @@ function printQr(ticket) {
     style.textContent = `
         body { font-family: sans-serif; text-align: center; padding: 24px; }
         h2 { margin: 0 0 4px; font-size: 18px; }
-        .meta { margin: 0 0 16px; color: #555; font-size: 13px; }
-        img { width: 320px; height: 320px; }
+        .meta { margin: 0 0 4px; color: #555; font-size: 13px; }
+        .number { margin: 0 0 16px; font-size: 15px; font-weight: 700; }
+        img { width: 320px; height: auto; }
         .uuid { margin-top: 16px; font-size: 11px; color: #666; }
     `;
 
     const heading = win.document.createElement('h2');
     const meta = win.document.createElement('p');
+    const number = win.document.createElement('p');
     const image = win.document.createElement('img');
     const uuid = win.document.createElement('p');
 
     meta.className = 'meta';
     meta.textContent = ticket.type_name || '';
+    number.className = 'number';
+    number.textContent = ticket.number != null ? `N° ${ticket.number} para el sorteo` : '';
     image.src = qrUrl(ticket);
     image.alt = ticket.event_name || 'Entrada';
     uuid.className = 'uuid';
     uuid.textContent = ticket.uuid;
 
     win.document.head.appendChild(style);
-    win.document.body.append(heading, meta, image, uuid);
+    win.document.body.append(heading, meta, number, image, uuid);
 
     heading.textContent = ticket.event_name || 'Entrada';
 
@@ -265,6 +269,10 @@ onBeforeUnmount(() => {
                                 :style="{ background: ticket.wristband_color || ticket.type_wristband_color }"
                             ></span>
                             {{ ticket.type_name }}
+                        </p>
+
+                        <p v-if="ticket.number != null" class="eticket__number mb-2 numeric">
+                            <i class="bi bi-gift me-1"></i>N° {{ ticket.number }} para el sorteo
                         </p>
 
                         <p v-if="ticket.starts_at" class="text-muted-2 small mb-1 numeric">
@@ -379,6 +387,12 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 0.45rem;
     color: var(--et-text-muted);
+    font-size: 0.875rem;
+}
+
+.eticket__number {
+    color: var(--et-primary);
+    font-weight: 700;
     font-size: 0.875rem;
 }
 

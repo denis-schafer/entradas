@@ -1549,6 +1549,10 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $mine->assertOk();
         $this->assertSame($token, $mine->json('0.public_token'));
 
+        // El numero de sorteo de cada entrada viaja al portal: es el que se
+        // proyecta cuando sale sorteada.
+        $this->assertNotNull($mine->json('0.number'));
+
         // Sin ninguna sesion: ni vendedor, ni comprador, ni admin.
         auth()->logout();
 
@@ -1562,10 +1566,19 @@ public function test_webhook_marca_la_orden_pagada_y_es_idempotente(): void
         $this->assertArrayNotHasKey('buyer_user_id', $view->json('order'));
         $this->assertArrayNotHasKey('buyer_email', $view->json('order'));
 
+        // El publico tambien ve el numero de sorteo de cada entrada.
+        $this->assertArrayHasKey('number', $view->json('tickets.0'));
+
         // El QR se sirve en SVG, que es lo que ve el comprador y escanea la puerta.
         $qr = $this->get("/tickets-portal/api/public/entry/{$token}/{$ticketId}/qr.svg");
         $qr->assertOk();
         $this->assertStringContainsString('image/svg+xml', $qr->headers->get('Content-Type'));
+
+        // Y el numero de sorteo queda dibujado dentro del propio SVG, para que
+        // tambien aparezca en el archivo que el comprador descarga o imprime.
+        $ticketNumber = DB::table('tickets_tickets')->where('id', $ticketId)->value('number');
+        $this->assertNotNull($ticketNumber);
+        $this->assertStringContainsString('N° '.$ticketNumber, $qr->getContent());
 
         // Y el archivo SPA se sirve sobre el path del link (la pagina que
         // monta la vista publica).

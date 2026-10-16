@@ -50,7 +50,7 @@ class PortalPublicEntryController extends Controller
             ->where('t.status', '!=', 'cancelled')
             ->orderBy('t.id')
             ->select([
-                't.id', 't.uuid', 't.status', 't.used_at',
+                't.id', 't.number', 't.uuid', 't.status', 't.used_at',
                 't.wristband_given', 't.wristband_color',
                 'tt.name as type_name',
                 'tt.wristband_color as type_wristband_color', 'tt.wristband_label',
@@ -77,13 +77,17 @@ class PortalPublicEntryController extends Controller
             ->where('o.status', 'paid')
             ->where('t.id', $ticketId)
             ->where('t.status', '!=', 'cancelled')
-            ->first(['t.id', 't.qr_payload']);
+            ->first(['t.id', 't.number', 't.qr_payload']);
 
         if (! $ticket || empty($ticket->qr_payload)) {
             abort(404);
         }
 
-        return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400)), 200, [
+        // El numero de sorteo viaja dentro del SVG: asi aparece en la vista
+        // publica del link y en el archivo si el comprador lo descarga.
+        $caption = $ticket->number === null ? null : 'N° '.(int) $ticket->number;
+
+        return response(QrRenderer::svg($ticket->qr_payload, (int) $request->query('size', 400), $caption), 200, [
             'Content-Type' => 'image/svg+xml',
             'Cache-Control' => 'private, max-age=300',
         ]);
