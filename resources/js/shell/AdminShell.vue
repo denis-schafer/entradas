@@ -356,6 +356,9 @@ onBeforeUnmount(() => {
     border-right: 1px solid var(--et-border);
     transform: translateX(-100%);
     transition: transform var(--et-transition);
+    /* Red de seguridad: si la ventana es muy chica la barra entera scrollea
+       y el pie (con "Salir") nunca queda fuera de pantalla. */
+    overflow-y: auto;
 }
 
 .is-drawer-open .admin__side {
@@ -377,6 +380,7 @@ onBeforeUnmount(() => {
     gap: 0.55rem;
     padding: 0 0.4rem;
     font-size: 1.05rem;
+    flex-shrink: 0;
 }
 
 .admin__brand-mark {
@@ -391,6 +395,10 @@ onBeforeUnmount(() => {
     flex-direction: column;
     gap: 2px;
     flex: 1;
+    /* min-height: 0 (y no el auto por defecto) permite que el flex-item
+       encoja y scrollee en vez de empujar el pie hacia afuera. */
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .admin__nav-item {
@@ -422,6 +430,8 @@ onBeforeUnmount(() => {
 .admin__side-foot {
     border-top: 1px solid var(--et-border);
     padding-top: 0.85rem;
+    /* Se queda pegado abajo: nunca se colapsa ni se va con el scroll del nav. */
+    flex-shrink: 0;
 }
 
 .admin__user {
