@@ -54,6 +54,12 @@ body {
     font-family: var(--et-font-sans);
 }
 
+.boot__logo {
+    width: min(72vw, 300px);
+    height: auto;
+    display: block;
+}
+
 .boot__mark {
     width: 44px;
     height: 44px;

@@ -9,6 +9,11 @@
     {{-- Minutos de vida de la sesion. El frontend lo usa para avisar antes de
          que Laravel la venza por inactividad (ver resources/js/sessionWatch.js). --}}
     <meta name="session-lifetime" content="{{ (int) config('session.lifetime') }}">
+    {{-- Identidad del portal resuelta en el servidor. El frontend la usa en la
+         pantalla de carga y en los shells para no esperar al endpoint de
+         configuracion antes de mostrar el logo. --}}
+    <meta name="portal-logo" content="{{ $portalLogo }}">
+    <meta name="business-name" content="{{ $businessName }}">
     {{-- Credenciales de Reverb en base64. Van en la pagina a proposito: son las
          que el navegador necesita para conectarse al websocket, y son las
          publicas del protocolo. El secreto y el id de la app no salen de aca.
@@ -29,7 +34,7 @@
             'key' => $reverbApp['key'],
         ])) }}">
     @endif
-    <title>{{ config('app.name', 'Entradas') }}</title>
+    <title>{{ $businessName }}</title>
     <link rel="icon" href="/favicon.ico">
     @vite(['resources/sass/app.scss', 'resources/js/app.js'])
 </head>
@@ -38,7 +43,7 @@
         {{-- Pantalla de carga previa a montar Vue. Si algo falla al arrancar,
              el usuario ve esto y no una pagina en blanco. --}}
         <div class="boot">
-            <div class="boot__mark"></div>
+            <img src="{{ $portalLogo }}" alt="{{ $businessName }}" class="boot__logo">
             <p>Cargando…</p>
         </div>
     </div>

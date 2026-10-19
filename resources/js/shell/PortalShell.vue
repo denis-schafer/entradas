@@ -32,6 +32,8 @@ import RegisterView from '../portal/RegisterView.vue';
 
 const props = defineProps({
     user: { type: Object, default: null },
+    brandLogo: { type: String, default: '' },
+    businessName: { type: String, default: '' },
 });
 
 const emit = defineEmits(['logged-out', 'logged-in']);
@@ -70,6 +72,16 @@ defineRoutes(VIEWS);
 const currentView = computed(() => VIEWS[route.value.name] || EventListView);
 
 const isGuest = computed(() => !props.user);
+
+// El logo sale del HTML inicial (prop), de la configuracion o del default del
+// proyecto. Con el prop ya resuelto no hay salto entre la pantalla de carga y
+// el header.
+const logo = computed(
+    () => props.brandLogo || config.value.portal_logo || '/img/PuntoEntrada-logo.svg'
+);
+const brandName = computed(
+    () => config.value.business_name || props.businessName || 'Entradas'
+);
 
 // Los botones del header hacen de navegacion entre login y registro: no hace
 // falta repetir el enlace dentro de cada pantalla. En el login se ofrece "Crear
@@ -124,10 +136,10 @@ onBeforeUnmount(() => {
         <header class="portal__nav no-print">
             <div class="portal__nav-inner">
                 <button class="portal__brand" @click="go('events')">
-                    <img v-if="config.portal_logo" :src="config.portal_logo" :alt="config.business_name" height="30">
+                    <img v-if="logo" :src="logo" :alt="brandName" class="portal__logo">
                     <template v-else>
                         <span class="portal__brand-mark"></span>
-                        <span class="fw-bold">{{ config.business_name || 'Entradas' }}</span>
+                        <span class="fw-bold">{{ brandName }}</span>
                     </template>
                 </button>
 
@@ -267,6 +279,12 @@ onBeforeUnmount(() => {
     color: var(--et-text);
     font-size: 1.05rem;
     padding: 0;
+}
+
+.portal__logo {
+    display: block;
+    height: 90px;
+    width: auto;
 }
 
 .portal__brand-mark {

@@ -193,4 +193,55 @@ export function consumeRedirect() {
     }
 }
 
+/* ---------------------------------------------------------------------------
+| Compra pendiente de autenticacion
+| ---------------------------------------------------------------------------
+|
+| Si el visitante arma el carrito sin sesion, se guarda lo que eligio antes de
+| mandarlo al login o al registro. Al volver autenticado, EventDetailView
+| restaura las cantidades y continua la compra sin que tenga que repetir la
+| seleccion.
+*/
+const PURCHASE_KEY = 'et:pending-purchase';
+const PURCHASE_TTL_MS = 2 * 60 * 60 * 1000;
+
+export function rememberPurchase(purchase) {
+    try {
+        sessionStorage.setItem(PURCHASE_KEY, JSON.stringify({
+            slug: purchase.slug,
+            items: Array.isArray(purchase.items) ? purchase.items : [],
+            at: Date.now(),
+        }));
+    } catch {
+        // Sin storage se pierde la seleccion, pero el login sigue funcionando.
+    }
+}
+
+export function consumePendingPurchase() {
+    try {
+        const raw = sessionStorage.getItem(PURCHASE_KEY);
+
+        if (!raw) {
+            return null;
+        }
+
+        sessionStorage.removeItem(PURCHASE_KEY);
+
+        const parsed = JSON.parse(raw);
+
+        if (!parsed?.slug || !Array.isArray(parsed.items)) {
+            return null;
+        }
+
+        // Una seleccion vieja ya no representa lo que el comprador queria.
+        if (parsed.at && Date.now() - parsed.at > PURCHASE_TTL_MS) {
+            return null;
+        }
+
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
 export const useRoute = computed(() => ({ name: state.name, params: state.params }));

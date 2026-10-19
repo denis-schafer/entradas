@@ -11,10 +11,11 @@
  * que se puede pedir (remaining, max_per_order, ventana de venta), para que
  * el error 422 sea la excepcion y no la norma.
  */
-import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue';
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import api, { toError } from '../api.js';
 import { listen, startPolling, stopPolling } from '../realtime.js';
-import { rememberOrder, rememberRedirect } from '../shell/router.js';
+import { rememberOrder, rememberRedirect, rememberPurchase, consumePendingPurchase } from '../shell/router.js';
+import { redirectToMercadoPago } from '../mercadoPago.js';
 import { toast } from '../ui/toast.js';
 import EmptyState from '../ui/EmptyState.vue';
 import AdSlot from './AdSlot.vue';
@@ -24,6 +25,9 @@ const props = defineProps({
     slug: { type: String, required: true },
     user: { type: Object, default: null },
     config: { type: Object, default: () => ({}) },
+    // Lo setea la raiz al volver de un login/registro: hay que restaurar el
+    // carrito guardado y continuar la compra sin pedir los pasos de nuevo.
+    resume: { type: [String, Number], default: null },
 });
 
 const emit = defineEmits(['navigate']);
@@ -48,6 +52,10 @@ async function load() {
                 qty[type.id] = 0;
             }
         });
+
+        if (props.resume) {
+            restorePurchase();
+        }
     } catch (err) {
         error.value = toError(err).message;
     } finally {
@@ -114,6 +122,55 @@ function limitFor(type) {
     return Math.max(0, Math.min(type.max_per_order, byStock));
 }
 
+/**
+ * Vuelve a armar el carrito que quedo guardado antes de mandar al comprador a
+ * crear la cuenta o iniciar sesion. Si todo sigue disponible, continua sola
+ * hasta el pago. Si algo cambio (stock, venta cerrada), deja las cantidades que
+ * se puedan y avisa para que el comprador revise.
+ */
+function restorePurchase() {
+    const purchase = consumePendingPurchase();
+
+    if (!purchase || purchase.slug !== props.slug) {
+        return;
+    }
+
+    let allRestored = purchase.items.length > 0;
+    let anyRestored = false;
+
+    for (const item of purchase.items) {
+        const type = types.value.find((t) => t.id === Number(item.ticket_type_id));
+        const wanted = Number(item.qty) || 0;
+
+        if (!type || wanted <= 0) {
+            allRestored = false;
+
+            continue;
+        }
+
+        const restored = Math.min(wanted, limitFor(type));
+
+        if (restored > 0) {
+            qty[type.id] = restored;
+            anyRestored = true;
+        }
+
+        if (restored < wanted) {
+            allRestored = false;
+        }
+    }
+
+    if (allRestored) {
+        nextTick(() => goToCheckout());
+
+        return;
+    }
+
+    if (anyRestored) {
+        toast('El stock cambio. Revisa las cantidades antes de comprar.', 'warning');
+    }
+}
+
 function step(type, delta) {
     const next = (qty[type.id] || 0) + delta;
 
@@ -169,8 +226,11 @@ function goToCheckout() {
     | al entrar, la raiz vuelve a esta misma pantalla.
     */
     if (!props.user) {
+        // Se guarda el carrito y el evento: despues del login o del registro se
+        // restaura y la compra sigue sola.
+        rememberPurchase({ slug: props.slug, items: items.value });
         rememberRedirect({ name: 'event', params: { slug: props.slug } });
-        toast('Ingresa para comprar tus entradas.', 'info');
+        toast('Ingresa o crea tu cuenta para continuar con la compra.', 'info');
 
         emit('navigate', 'login');
 
@@ -238,7 +298,7 @@ function goToCheckout() {
                     return;
                 }
 
-                window.location.href = target;
+                redirectToMercadoPago(target);
 
                 return;
             }

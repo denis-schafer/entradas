@@ -12,6 +12,8 @@ import api, { toError } from '../api.js';
 
 const props = defineProps({
     token: { type: String, required: true },
+    brandLogo: { type: String, default: '' },
+    businessName: { type: String, default: '' },
 });
 
 const emit = defineEmits(['navigate']);
@@ -75,6 +77,14 @@ onMounted(load);
 
 <template>
     <div class="entry">
+        <header class="entry__brand">
+            <img
+                :src="brandLogo || '/img/PuntoEntrada-logo.svg'"
+                :alt="businessName || 'Entradas'"
+                class="entry__logo"
+            >
+        </header>
+
         <p v-if="error" class="entry__notice" style="color: var(--et-danger)">
             <i class="bi bi-exclamation-circle me-1"></i>{{ error }}
         </p>
@@ -154,6 +164,16 @@ onMounted(load);
     min-height: 45vh;
     max-width: 920px;
     margin: 0 auto;
+}
+
+.entry__brand {
+    margin-bottom: 1.25rem;
+}
+
+.entry__logo {
+    display: block;
+    height: 72px;
+    width: auto;
 }
 
 .entry__notice {

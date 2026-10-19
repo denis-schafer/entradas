@@ -14,6 +14,15 @@ import PortalShell from './shell/PortalShell.vue';
 import AdminShell from './shell/AdminShell.vue';
 
 /**
+ * Lee un meta tag del HTML inicial. El servidor ya resolvio la identidad del
+ * portal ahi, asi que el primer render (incluida la pantalla de carga) usa el
+ * logo configurado sin esperar al endpoint de configuracion.
+ */
+function metaContent(name) {
+    return document.querySelector(`meta[name="${name}"]`)?.getAttribute('content') || '';
+}
+
+/**
  * Raiz de la app.
  *
  * Toda la app se sirve en http://entradas.test y no hay router de URL: esto
@@ -36,6 +45,12 @@ const Root = defineComponent({
         const loading = ref(true);
         const user = ref(null);
         const route = useRoute;
+
+        // Identidad del portal resuelta por el servidor. Es la misma que usan
+        // los shells, asi que el logo no cambia entre la pantalla de carga y
+        // la aplicacion ya montada.
+        const brandLogo = ref(metaContent('portal-logo') || '/img/PuntoEntrada-logo.svg');
+        const businessName = ref(metaContent('business-name') || 'Entradas');
 
         /*
         | "Ver el portal como comprador" desde el panel abre una nueva pestaña
@@ -170,6 +185,22 @@ const anonView = computed(() => {
                     return;
                 }
 
+                // Si el login vino de tocar "Comprar" sin sesion, se vuelve al
+                // evento que estaba mirando para no perder la eleccion. El flag
+                // resume le dice a la vista que restaure el carrito guardado y
+                // continue la compra sola.
+                const redirect = consumeRedirect();
+
+                if (redirect) {
+                    const params = redirect.name === 'event'
+                        ? { ...(redirect.params || {}), resume: 1 }
+                        : (redirect.params || {});
+
+                    go(redirect.name, params);
+
+                    return;
+                }
+
                 // Comprador: si venia pagando algo, se muestra el resultado de
                 // esa orden en vez del listado. La URL seguia siendo la misma.
                 const pending = readPendingOrder();
@@ -180,11 +211,7 @@ const anonView = computed(() => {
                     return;
                 }
 
-                // Si el login vino de tocar "Comprar" sin sesion, se vuelve al
-                // evento que estaba mirando para no perder la eleccion.
-                const redirect = consumeRedirect();
-
-                go(redirect ? redirect.name : 'events', redirect?.params || {});
+                go('events');
             });
         }
 
@@ -349,6 +376,8 @@ const anonView = computed(() => {
             entryToken,
             projectorToken,
             forcePortal,
+            brandLogo,
+            businessName,
             handleLoggedIn,
             handleLoggedOut,
             handlePortalLoggedIn,
@@ -359,7 +388,11 @@ const anonView = computed(() => {
     render() {
         if (this.loading) {
             return h('div', { class: 'boot' }, [
-                h('div', { class: 'boot__mark' }),
+                h('img', {
+                    class: 'boot__logo',
+                    src: this.brandLogo,
+                    alt: this.businessName,
+                }),
                 h('p', 'Cargando…'),
             ]);
         }
@@ -371,7 +404,12 @@ const anonView = computed(() => {
         */
         if (this.projectorToken) {
             return h('div', { class: 'root-anon' }, [
-                h(RaffleProjectionView, { key: 'sorteo', token: this.projectorToken }),
+                h(RaffleProjectionView, {
+                    key: 'sorteo',
+                    token: this.projectorToken,
+                    brandLogo: this.brandLogo,
+                    businessName: this.businessName,
+                }),
                 h(ToastHost),
                 h(ConfirmDialog),
             ]);
@@ -388,6 +426,8 @@ const anonView = computed(() => {
                     h(PublicEntryView, {
                         key: 'entrada',
                         token: this.entryToken || this.route.params.token || '',
+                        brandLogo: this.brandLogo,
+                        businessName: this.businessName,
                         onNavigate: this.handleNavigate,
                     }),
                     h(ToastHost),
@@ -399,6 +439,8 @@ const anonView = computed(() => {
                 h(PortalShell, {
                     key: 'portal',
                     user: null,
+                    brandLogo: this.brandLogo,
+                    businessName: this.businessName,
                     onLoggedOut: this.handleLoggedOut,
                     onLoggedIn: this.handlePortalLoggedIn,
                     onNavigate: this.handleNavigate,
@@ -413,12 +455,16 @@ const anonView = computed(() => {
                 ? h(AdminShell, {
                     key: 'admin',
                     user: this.user,
+                    brandLogo: this.brandLogo,
+                    businessName: this.businessName,
                     onLoggedOut: this.handleLoggedOut,
                     onNavigate: this.handleNavigate,
                 })
                 : h(PortalShell, {
                     key: 'portal',
                     user: this.user,
+                    brandLogo: this.brandLogo,
+                    businessName: this.businessName,
                     onLoggedOut: this.handleLoggedOut,
                     // Mi cuenta puede cambiar el nombre: la raiz guarda el usuario
                     // nuevo para que el shell no vuelva a mostrar el viejo.

@@ -11,6 +11,7 @@
  */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
+import { redirectToMercadoPago } from '../mercadoPago.js';
 import { toast } from '../ui/toast.js';
 
 const props = defineProps({
@@ -105,7 +106,7 @@ async function startMercadoPago() {
             return;
         }
 
-        window.location.href = target;
+        redirectToMercadoPago(target);
     } catch (err) {
         error.value = toError(err).message;
         toast(error.value, 'danger');

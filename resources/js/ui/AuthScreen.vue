@@ -105,6 +105,17 @@ async function submit() {
                 Ingresar
             </button>
         </form>
+
+        <p class="auth__switch small mt-4 mb-0">
+            ¿No tenés cuenta?
+            <button
+                type="button"
+                class="btn btn-link btn-sm p-0 align-baseline"
+                @click="emit('navigate', 'register')"
+            >
+                Creá una y seguí con tu compra
+            </button>
+        </p>
     </div>
 </template>
 
@@ -117,5 +128,10 @@ async function submit() {
 
 .auth__head {
     margin-bottom: 0;
+}
+
+.auth__switch {
+    text-align: center;
+    color: var(--et-text-muted);
 }
 </style>

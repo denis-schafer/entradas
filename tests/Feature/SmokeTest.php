@@ -37,6 +37,32 @@ class SmokeTest extends TestCase
     }
 
     /**
+     * La identidad del portal viaja en el HTML inicial: la pantalla de carga
+     * usa el logo configurado antes de que Vue pida la configuracion, y el
+     * frontend lo reutiliza en el portal y el panel.
+     */
+    public function test_el_layout_usa_el_logo_configurado(): void
+    {
+        DB::table('tickets_configs')->updateOrInsert(
+            ['name' => 'portal_logo'],
+            [
+                'value' => '/img/PuntoEntrada-logo.svg',
+                'type' => 'image',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+
+        $content = $this->get('/')->assertOk()->getContent();
+
+        $this->assertStringContainsString(
+            '<meta name="portal-logo" content="/img/PuntoEntrada-logo.svg">',
+            $content
+        );
+        $this->assertStringContainsString('class="boot__logo"', $content);
+    }
+
+    /**
      * El meta de Reverb es lo unico que le dice al navegador como conectarse al
      * websocket. Si falta, la app sigue funcionando con polling, pero el
      * operador no ve los cambios en vivo y nadie se da cuenta.

@@ -16,6 +16,8 @@ import { listen, startPolling, stopPolling, realtimeState } from '../realtime.js
 
 const props = defineProps({
     token: { type: String, required: true },
+    brandLogo: { type: String, default: '' },
+    businessName: { type: String, default: '' },
 });
 
 const state = ref(null);
@@ -118,9 +120,16 @@ onBeforeUnmount(() => {
 <template>
     <div class="proj">
         <header class="proj__head">
-            <div>
-                <p v-if="eventName" class="proj__event">{{ eventName }}</p>
-                <h1 class="proj__title">{{ raffleName }}</h1>
+            <div class="proj__brand">
+                <img
+                    :src="brandLogo || '/img/PuntoEntrada-logo.svg'"
+                    :alt="businessName || 'Entradas'"
+                    class="proj__logo"
+                >
+                <div>
+                    <p v-if="eventName" class="proj__event">{{ eventName }}</p>
+                    <h1 class="proj__title">{{ raffleName }}</h1>
+                </div>
             </div>
 
             <span class="proj__live" :class="{ 'is-on': realtimeState.connected }">
@@ -187,6 +196,20 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     gap: 1rem;
     padding: 1.5rem 2rem;
+}
+
+.proj__brand {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    min-width: 0;
+}
+
+.proj__logo {
+    display: block;
+    height: 56px;
+    width: auto;
+    flex-shrink: 0;
 }
 
 .proj__event {

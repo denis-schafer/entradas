@@ -171,6 +171,17 @@ async function submit() {
                     Crear cuenta
                 </button>
             </form>
+
+            <p class="small mt-3 mb-0 text-center" style="color: var(--et-text-muted)">
+                ¿Ya tenés cuenta?
+                <button
+                    type="button"
+                    class="btn btn-link btn-sm p-0 align-baseline"
+                    @click="emit('navigate', 'login')"
+                >
+                    Ingresá
+                </button>
+            </p>
         </div>
 </template>
 

@@ -17,7 +17,7 @@ class TicketsConfigSeeder extends Seeder
 {
     private const DEFAULTS = [
         ['business_name', 'Entradas', 'text'],
-        ['portal_logo', '', 'image'],
+        ['portal_logo', '/img/PuntoEntrada-logo.svg', 'image'],
         ['portal_primary_color', '#7C5CFF', 'text'],
         ['portal_secondary_color', '#FF3D71', 'text'],
         ['welcome_message', '', 'text'],

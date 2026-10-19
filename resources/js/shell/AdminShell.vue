@@ -41,6 +41,8 @@ const StatisticsView = defineAsyncComponent(() => import('../admin/StatisticsVie
 
 const props = defineProps({
     user: { type: Object, required: true },
+    brandLogo: { type: String, default: '' },
+    businessName: { type: String, default: '' },
 });
 
 const emit = defineEmits(['logged-out']);
@@ -258,8 +260,16 @@ onBeforeUnmount(() => {
     <div class="admin" :class="{ 'is-drawer-open': menuOpen, 'is-test-mode': appState.testMode }">
         <aside class="admin__side no-print">
             <div class="admin__brand">
-                <span class="admin__brand-mark"></span>
-                <span class="fw-bold">Tickets</span>
+                <img
+                    v-if="brandLogo"
+                    :src="brandLogo"
+                    :alt="businessName || 'Tickets'"
+                    class="admin__brand-logo"
+                >
+                <template v-else>
+                    <span class="admin__brand-mark"></span>
+                    <span class="fw-bold">Tickets</span>
+                </template>
                 <span v-if="appState.testMode" class="admin__test-badge">Modo Test</span>
             </div>
 
@@ -381,6 +391,12 @@ onBeforeUnmount(() => {
     padding: 0 0.4rem;
     font-size: 1.05rem;
     flex-shrink: 0;
+}
+
+.admin__brand-logo {
+    display: block;
+    height: 52px;
+    width: auto;
 }
 
 .admin__brand-mark {
