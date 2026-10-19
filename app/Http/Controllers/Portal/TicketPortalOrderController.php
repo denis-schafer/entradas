@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Portal;
 
 use App\Http\Controllers\Controller;
+use App\Services\OrderExpiry;
 use App\Services\Realtime;
 use App\Services\TicketOrderService;
 use App\Support\QrRenderer;
@@ -67,6 +68,18 @@ class TicketPortalOrderController extends Controller
             if (! $type) {
                 return response()->json([
                     'message' => "Tipo de entrada {$item['ticket_type_id']} no disponible",
+                ], 422);
+            }
+
+            if ($type->sale_start_at !== null && now()->lt($type->sale_start_at)) {
+                return response()->json([
+                    'message' => "La venta de {$type->name} todavia no comenzo",
+                ], 422);
+            }
+
+            if ($type->sale_end_at !== null && now()->gt($type->sale_end_at)) {
+                return response()->json([
+                    'message' => "La venta de {$type->name} ya termino",
                 ], 422);
             }
 
@@ -172,8 +185,8 @@ class TicketPortalOrderController extends Controller
             ->leftJoin('tickets_events as e', 't.event_id', '=', 'e.id')
             ->leftJoin('tickets_orders as o', 't.order_id', '=', 'o.id')
             ->where('o.buyer_user_id', $buyer['id'])
-            ->where('o.status', '!=', 'cancelled')
-            ->where('t.status', '!=', 'cancelled')
+            ->whereNotIn('o.status', ['cancelled', 'expired'])
+            ->whereNotIn('t.status', ['cancelled', 'expired'])
             ->select([
                 't.id', 't.number', 't.uuid', 't.qr_payload', 't.status', 't.used_at',
                 't.wristband_given', 't.wristband_color',
@@ -245,6 +258,14 @@ class TicketPortalOrderController extends Controller
 
         if (! $order) {
             return response()->json(['message' => 'Orden no encontrada'], 404);
+        }
+
+        // El estado se resuelve perezosamente: si ya paso el deadline, la orden
+        // se vence y libera el stock en este mismo pedido, sin esperar al cron.
+        if ($order->status === 'pending') {
+            app(OrderExpiry::class)->expireIfPastDue($order);
+
+            $order = DB::table('tickets_orders')->where('id', $order->id)->first();
         }
 
         return response()->json([

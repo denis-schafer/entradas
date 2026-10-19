@@ -2,20 +2,30 @@
 
 namespace App\Services;
 
+use App\Support\OrderWindow;
 use App\Support\QrPayload;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /*
 | Logica de "marcar orden como pagada" reutilizada por:
 |   - Webhook de MercadoPago (camino normal, cuando MP puede llamar al server).
+|   - Webhook de Multipago.
 |   - Reconciliacion manual desde el panel admin (cuando los webhooks no
 |     llegaron: entorno de desarrollo detras de localhost, deploy nuevo, MP
 |     con problemas de entrega, etc.).
+|   - Venta en efectivo del POS.
 |
 | La condicion de idempotencia se conserva: si la orden ya esta paid con ese
 | payment_id se sale sin tocar nada; si esta paid con otro payment_id se loguea
 | y tambien se sale.
+|
+| Ademas se valida la vigencia: una orden solo se acredita si el pago fue
+| aprobado antes del deadline (final del dia de la orden o fin de venta del
+| tipo) y si el precio actual sigue coincidiendo con el total guardado. Un pago
+| que el proveedor aprobo antes del deadline pero cuyo aviso llego despues se
+| acepta; uno aprobado despues queda para revision/reembolso manual.
 */
 class OrderPaymentService
 {
@@ -29,10 +39,16 @@ class OrderPaymentService
      * @param  string  $paymentId   ID del pago en el proveedor.
      * @param  array   $payment     Payload completo del pago devuelto por el medio.
      * @param  string  $paymentMethod  Code del medio que acredito el pago.
+     * @param  mixed   $approvedAt  Fecha en que el proveedor aprobo el pago.
      * @return array{changed: bool, reason: ?string, was_cancelled: bool}
      */
-    public function markPaid(object $order, string $paymentId, array $payment, string $paymentMethod = 'mercadopago'): array
-    {
+    public function markPaid(
+        object $order,
+        string $paymentId,
+        array $payment,
+        string $paymentMethod = 'mercadopago',
+        mixed $approvedAt = null,
+    ): array {
         $result = [
             'changed' => false,
             'reason' => null,
@@ -57,9 +73,43 @@ class OrderPaymentService
             return $result;
         }
 
-        $wasCancelled = false;
+        $paidAt = ($approvedAt !== null && $approvedAt !== '')
+            ? CarbonImmutable::parse((string) $approvedAt)
+            : CarbonImmutable::now();
 
-        DB::transaction(function () use ($order, $paymentId, $payment, $paymentMethod, &$wasCancelled) {
+        if ($paidAt->greaterThan(OrderWindow::deadline($order))) {
+            Log::critical('[OrderPayment] pago fuera de la vigencia', [
+                'order_id' => $order->id,
+                'payment_id' => $paymentId,
+                'approved_at' => $paidAt->toIso8601String(),
+                'deadline' => OrderWindow::deadline($order)->toIso8601String(),
+            ]);
+
+            $result['reason'] = 'outside_window';
+
+            return $result;
+        }
+
+        if (! OrderWindow::priceMatches($order)) {
+            Log::critical('[OrderPayment] precio desactualizado', [
+                'order_id' => $order->id,
+                'payment_id' => $paymentId,
+                'stored_total' => $order->total,
+                'current_total' => OrderWindow::currentTotal($order),
+            ]);
+
+            $result['reason'] = 'price_changed';
+
+            return $result;
+        }
+
+        $wasCancelled = false;
+        $paidNow = false;
+        $skipReason = null;
+
+        DB::transaction(function () use (
+            $order, $paymentId, $payment, $paymentMethod, $paidAt, &$wasCancelled, &$paidNow, &$skipReason
+        ) {
             /*
             | El lock sobre la orden y el re-chequeo del status van juntos. El
             | webhook de MercadoPago puede llegar dos veces (o dos pagos de la
@@ -69,6 +119,8 @@ class OrderPaymentService
             $locked = DB::table('tickets_orders')->where('id', $order->id)->lockForUpdate()->first();
 
             if (! $locked) {
+                $skipReason = 'not_found';
+
                 return;
             }
 
@@ -77,24 +129,55 @@ class OrderPaymentService
                 return;
             }
 
-            $wasCancelled = in_array($locked->status, ['cancelled', 'expired'], true);
+            /*
+            | Si la orden ya estaba vencida o cancelada, el pago solo vale si el
+            | proveedor lo aprobo antes de que la orden se cerrara. Para una
+            | orden vencida por el cambio de dia, updated_at es el momento del
+            | vencimiento; para una cancelacion manual, el momento de cancelar.
+            */
+            $closedAt = in_array($locked->status, ['cancelled', 'expired'], true)
+                ? CarbonImmutable::parse((string) $locked->updated_at)
+                : null;
+
+            if ($closedAt !== null && $paidAt->greaterThan($closedAt)) {
+                $skipReason = 'outside_window';
+
+                return;
+            }
+
+            if ($paidAt->greaterThan(OrderWindow::deadline($locked))) {
+                $skipReason = 'outside_window';
+
+                return;
+            }
+
+            if (! OrderWindow::priceMatches($locked)) {
+                $skipReason = 'price_changed';
+
+                return;
+            }
+
+            $wasCancelled = $closedAt !== null;
 
             if ($wasCancelled) {
                 /*
-                | Solo se cuentan los boletos cancelados, no todos los de la
-                | orden: si el panel anulo uno suelto antes del pago, esa
-                | anulacion no debe volver al stock.
+                | Se restauran las entradas cerradas (vencidas o canceladas),
+                | no todas las de la orden: si el panel anulo una entrada suelta
+                | antes del pago, esa anulacion tambien vuelve al stock porque
+                | forma parte de la misma reserva que se estaba pagando.
                 */
+                $restorable = ['cancelled', 'expired'];
+
                 $perType = DB::table('tickets_tickets')
-                    ->where('order_id', $order->id)
-                    ->where('status', 'cancelled')
+                    ->where('order_id', $locked->id)
+                    ->whereIn('status', $restorable)
                     ->select('ticket_type_id', DB::raw('COUNT(*) as qty'))
                     ->groupBy('ticket_type_id')
                     ->get();
 
                 DB::table('tickets_tickets')
-                    ->where('order_id', $order->id)
-                    ->where('status', 'cancelled')
+                    ->where('order_id', $locked->id)
+                    ->whereIn('status', $restorable)
                     ->update(['status' => 'valid', 'updated_at' => now()]);
 
                 foreach ($perType as $row) {
@@ -107,7 +190,7 @@ class OrderPaymentService
                 }
             }
 
-            DB::table('tickets_orders')->where('id', $order->id)->update([
+            DB::table('tickets_orders')->where('id', $locked->id)->update([
                 'status' => 'paid',
                 'payment_method' => $paymentMethod,
                 'payment_reference' => $payment['preference_id'] ?? $payment['reference'] ?? null,
@@ -118,11 +201,32 @@ class OrderPaymentService
                 'updated_at' => now(),
             ]);
 
-            $this->backfillQrPayloads($order->id);
+            $this->backfillQrPayloads($locked->id);
+
+            $paidNow = true;
         });
 
+        if ($skipReason !== null) {
+            Log::critical('[OrderPayment] pago no acreditado', [
+                'order_id' => $order->id,
+                'payment_id' => $paymentId,
+                'reason' => $skipReason,
+            ]);
+
+            $result['reason'] = $skipReason;
+
+            return $result;
+        }
+
+        if (! $paidNow) {
+            // Otro hilo lo acredito mientras esperabamos el lock.
+            $result['reason'] = 'already_paid_same_payment';
+
+            return $result;
+        }
+
         if ($wasCancelled) {
-            Log::critical('[OrderPayment] pago recibido sobre orden cancelada, revisar reembolso', [
+            Log::critical('[OrderPayment] pago recibido sobre orden cerrada, revisar reembolso', [
                 'order_id' => $order->id,
                 'payment_id' => $paymentId,
             ]);

@@ -775,6 +775,7 @@ onUnmounted(() => {
                     </select>
                     <div v-if="chosenMethod.code !== 'efectivo'" class="form-text">
                         Se genera un link de pago; la entrada se habilita cuando se acredita el pago.
+                        Vence hoy a las 23:59.
                     </div>
                 </div>
 

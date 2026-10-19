@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\OrderExpiry;
 use App\Services\Payments\EventPaymentMethods;
 use App\Services\Payments\PaymentGatewayRegistry;
 use App\Services\Payments\PaymentSetupException;
+use App\Support\OrderWindow;
 use App\Support\QrRenderer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,16 +39,24 @@ class TicketsCheckoutController extends Controller
         $order = DB::table('tickets_orders')
             ->where('id', $orderId)
             ->where('buyer_user_id', $buyer['id'])
-            ->where('status', 'pending')
             ->first();
 
         if (! $order) {
-            return response()->json(['message' => 'Orden no encontrada o ya pagada'], 404);
+            return response()->json(['message' => 'Orden no encontrada'], 404);
+        }
+
+        if ($order->status !== 'pending') {
+            return response()->json(['message' => 'La reserva ya no esta disponible. Inicia una compra nueva.'], 410);
+        }
+
+        if ($rejection = $this->rejectIfNotPayable($order)) {
+            return $rejection;
         }
 
         return response()->json([
             'methods' => EventPaymentMethods::forEvent((int) $order->event_id),
             'order_id' => (int) $order->id,
+            'expires_at' => OrderWindow::deadline($order)->toIso8601String(),
         ]);
     }
 
@@ -60,6 +70,10 @@ class TicketsCheckoutController extends Controller
 
         if (! $order) {
             return response()->json(['message' => 'Orden no encontrada'], 404);
+        }
+
+        if ($rejection = $this->rejectIfNotPayable($order)) {
+            return $rejection;
         }
 
         $gateway = $this->gatewayOrFail('multipago');
@@ -97,6 +111,10 @@ class TicketsCheckoutController extends Controller
             abort(404);
         }
 
+        if (! OrderWindow::isPayable($order)) {
+            abort(404);
+        }
+
         try {
             $built = $this->multipagoBuild($order, null);
         } catch (PaymentSetupException) {
@@ -124,7 +142,7 @@ class TicketsCheckoutController extends Controller
         $variant = $this->multipagoVariant($order, $variant);
         $orderId = (int) $order->id;
         $eventId = (int) $order->event_id;
-        $due = now()->addHours(24)->toDateString();
+        $due = OrderWindow::deadline($order)->toDateString();
 
         if ($variant === 'button') {
             $reference = $gateway->pumCode($orderId, $due, (float) $order->total, $eventId);
@@ -162,6 +180,29 @@ class TicketsCheckoutController extends Controller
         }
 
         return (string) ($order->payment_variant ?? '') === 'button' ? 'button' : 'qr';
+    }
+
+    /**
+     * Si la orden ya no se puede pagar, la vence (o la deja lista para volver a
+     * comprar) y devuelve la respuesta. Null si todavia se puede pagar.
+     */
+    private function rejectIfNotPayable(object $order): ?JsonResponse
+    {
+        if (OrderWindow::isPayable($order)) {
+            return null;
+        }
+
+        $expiry = app(OrderExpiry::class);
+
+        if (OrderWindow::isPastDeadline($order) || ! OrderWindow::typesAreAvailable($order)) {
+            $expiry->expireIfPastDue($order);
+
+            return response()->json(['message' => 'La reserva vencio. Inicia una compra nueva.'], 410);
+        }
+
+        $expiry->expireForPriceChange($order);
+
+        return response()->json(['message' => 'El precio de las entradas cambio. Inicia una compra nueva.'], 409);
     }
 
     private function pendingOrder(Request $request, int $orderId): ?object

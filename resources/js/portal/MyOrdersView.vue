@@ -118,7 +118,7 @@ onBeforeUnmount(() => {
     <div class="orders">
         <header class="mb-4">
             <h1 class="h3 fw-bold mb-1">Mis compras</h1>
-            <p class="text-muted-2 mb-0">Ordenes pagadas, pendientes y canceladas.</p>
+            <p class="text-muted-2 mb-0">Ordenes pagadas, pendientes, vencidas y canceladas.</p>
         </header>
 
         <p v-if="error" class="small" style="color: var(--et-danger)">

@@ -1,0 +1,1937 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentación del sistema · Entradas</title>
+<style>
+    :root {
+        --bg: #f4f6fb;
+        --surface: #ffffff;
+        --surface-2: #eef1f8;
+        --border: #e0e5f0;
+        --border-strong: #c9d1e2;
+        --text: #1e2430;
+        --muted: #5a6474;
+        --faint: #8a94a6;
+        --primary: #5b4bdb;
+        --primary-soft: #edeaff;
+        --accent: #0284c7;
+        --accent-soft: #e5f4fd;
+        --success: #15803d;
+        --success-soft: #e7f7ec;
+        --warning: #b45309;
+        --warning-soft: #fff4e3;
+        --danger: #b91c1c;
+        --danger-soft: #fdecec;
+        --violet: #7c3aed;
+        --radius: 14px;
+        --radius-sm: 9px;
+        --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 10px 30px rgb(16 24 40 / 7%);
+        --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        --sidebar: 292px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.62;
+        font-size: 16px;
+    }
+
+    a { color: var(--primary); }
+
+    .layout { display: flex; min-height: 100vh; }
+
+    /* ------------------------------------------------------------ sidebar */
+    .sidebar {
+        position: sticky;
+        top: 0;
+        align-self: flex-start;
+        height: 100vh;
+        width: var(--sidebar);
+        flex: 0 0 var(--sidebar);
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        z-index: 40;
+    }
+
+    .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        padding: 1.15rem 1.15rem 1rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .brand__mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--primary), var(--accent));
+        flex-shrink: 0;
+    }
+
+    .brand__title { font-weight: 800; font-size: 0.98rem; line-height: 1.2; }
+    .brand__sub { font-size: 0.74rem; color: var(--faint); }
+
+    .search { padding: 0.85rem 1rem 0.6rem; }
+
+    .search input {
+        width: 100%;
+        padding: 0.55rem 0.7rem;
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-sm);
+        background: var(--surface-2);
+        color: var(--text);
+        font-size: 0.85rem;
+        outline: none;
+    }
+
+    .search input:focus { border-color: var(--primary); background: #fff; }
+
+    .toc {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 0.4rem 0.55rem 1rem;
+        scrollbar-width: thin;
+    }
+
+    .toc a {
+        display: block;
+        padding: 0.42rem 0.65rem;
+        border-radius: var(--radius-sm);
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.845rem;
+        font-weight: 500;
+        border-left: 3px solid transparent;
+        transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .toc a:hover { background: var(--surface-2); color: var(--text); }
+
+    .toc a.is-active {
+        background: var(--primary-soft);
+        color: var(--primary);
+        border-left-color: var(--primary);
+        font-weight: 700;
+    }
+
+    .side-foot {
+        border-top: 1px solid var(--border);
+        padding: 0.8rem 1rem;
+        font-size: 0.72rem;
+        color: var(--faint);
+    }
+
+    /* ------------------------------------------------------------ content */
+    .content {
+        flex: 1;
+        min-width: 0;
+        padding: 0 0 4rem;
+    }
+
+    .content-inner {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 0 2.2rem;
+    }
+
+    .hero {
+        position: relative;
+        overflow: hidden;
+        background:
+            radial-gradient(42rem 22rem at 8% -30%, rgb(91 75 219 / 18%), transparent 60%),
+            radial-gradient(38rem 20rem at 95% 10%, rgb(2 132 199 / 16%), transparent 62%),
+            linear-gradient(160deg, #ffffff, #eef1fb);
+        border-bottom: 1px solid var(--border);
+        padding: 3.2rem 0 2.6rem;
+        margin-bottom: 1.2rem;
+    }
+
+    .hero__eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.74rem;
+        font-weight: 800;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--primary);
+        background: var(--primary-soft);
+        border-radius: 999px;
+        padding: 0.28rem 0.7rem;
+        margin-bottom: 1rem;
+    }
+
+    .hero h1 {
+        font-size: clamp(1.9rem, 4vw, 2.7rem);
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.6rem;
+    }
+
+    .hero p {
+        max-width: 720px;
+        color: var(--muted);
+        font-size: 1.06rem;
+        margin: 0 0 1.4rem;
+    }
+
+    .hero__meta { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--muted);
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.32rem 0.75rem;
+    }
+
+    .chip--primary { color: var(--primary); border-color: #d7d1ff; background: var(--primary-soft); }
+
+    .hero__actions { margin-top: 1.4rem; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        border: 0;
+        border-radius: 10px;
+        padding: 0.6rem 1rem;
+        font-size: 0.88rem;
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .btn--primary { background: var(--primary); color: #fff; }
+    .btn--primary:hover { filter: brightness(1.06); }
+    .btn--ghost { background: #fff; color: var(--text); border: 1px solid var(--border-strong); }
+    .btn--ghost:hover { background: var(--surface-2); }
+
+    .doc-section {
+        scroll-margin-top: 18px;
+        padding: 1.4rem 0 0.4rem;
+    }
+
+    .doc-section + .doc-section { border-top: 1px solid var(--border); margin-top: 1.6rem; }
+
+    h2 {
+        font-size: 1.5rem;
+        letter-spacing: -0.01em;
+        margin: 0 0 0.35rem;
+        display: flex;
+        align-items: baseline;
+        gap: 0.55rem;
+    }
+
+    h2 .num {
+        font-size: 0.82rem;
+        font-weight: 800;
+        color: var(--primary);
+        background: var(--primary-soft);
+        border-radius: 8px;
+        padding: 0.12rem 0.5rem;
+        flex-shrink: 0;
+    }
+
+    h3 {
+        font-size: 1.08rem;
+        margin: 1.5rem 0 0.5rem;
+        color: #2a3242;
+    }
+
+    h4 { font-size: 0.95rem; margin: 1.1rem 0 0.4rem; color: var(--muted); }
+
+    .lead { color: var(--muted); margin: 0 0 1rem; }
+
+    p { margin: 0.6rem 0; }
+
+    ul, ol { margin: 0.5rem 0; padding-left: 1.35rem; }
+    li { margin: 0.28rem 0; }
+
+    strong { color: #141a24; }
+
+    .grid { display: grid; gap: 0.9rem; }
+    .grid--2 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .grid--3 { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+    .grid--halves { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    @media (max-width: 720px) {
+        .grid--halves { grid-template-columns: 1fr; }
+    }
+
+    .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.05rem 1.15rem;
+        box-shadow: var(--shadow);
+    }
+
+    .card h4 { margin: 0 0 0.35rem; color: var(--text); font-size: 0.98rem; }
+    .card p { margin: 0.2rem 0; color: var(--muted); font-size: 0.9rem; }
+    .card ul { margin: 0.3rem 0 0; }
+    .card li { font-size: 0.9rem; color: var(--muted); }
+
+    .callout {
+        border-radius: var(--radius);
+        padding: 0.9rem 1.05rem;
+        margin: 1rem 0;
+        border: 1px solid;
+        font-size: 0.92rem;
+    }
+
+    .callout strong { display: block; margin-bottom: 0.15rem; }
+    .callout p + p { margin-top: 0.4rem; }
+    .callout ul { margin: 0.35rem 0 0; }
+
+    .callout--info { background: var(--accent-soft); border-color: #bfe4fa; color: #0b4d6b; }
+    .callout--tip { background: var(--success-soft); border-color: #bfe6ca; color: #14532d; }
+    .callout--warn { background: var(--warning-soft); border-color: #f5d9ae; color: #7c3f07; }
+    .callout--danger { background: var(--danger-soft); border-color: #f2c4c4; color: #7f1d1d; }
+
+    .table-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        margin: 1rem 0;
+        background: var(--surface);
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 520px; }
+
+    th, td {
+        text-align: left;
+        padding: 0.65rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+    }
+
+    th {
+        background: var(--surface-2);
+        color: #3a4354;
+        font-weight: 700;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: #fafbff; }
+
+    .yes { color: var(--success); font-weight: 700; }
+    .no { color: var(--faint); }
+    .partial { color: var(--warning); font-weight: 700; }
+
+    .badge {
+        display: inline-block;
+        font-size: 0.73rem;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 0.14rem 0.55rem;
+        white-space: nowrap;
+    }
+
+    .badge--draft { background: var(--surface-2); color: var(--muted); }
+    .badge--published { background: var(--success-soft); color: var(--success); }
+    .badge--closed { background: var(--warning-soft); color: var(--warning); }
+    .badge--cancelled { background: var(--danger-soft); color: var(--danger); }
+    .badge--pending { background: var(--warning-soft); color: var(--warning); }
+    .badge--paid { background: var(--success-soft); color: var(--success); }
+    .badge--expired { background: #eef0f4; color: var(--faint); }
+    .badge--valid { background: var(--success-soft); color: var(--success); }
+    .badge--used { background: var(--accent-soft); color: var(--accent); }
+
+    .flow {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: stretch;
+        margin: 1.1rem 0;
+    }
+
+    .flow__step {
+        flex: 1 1 118px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-top: 4px solid var(--primary);
+        border-radius: var(--radius-sm);
+        padding: 0.75rem 0.8rem;
+        box-shadow: var(--shadow);
+    }
+
+    .flow__step b { display: block; font-size: 0.86rem; margin-bottom: 0.15rem; }
+    .flow__step span { font-size: 0.78rem; color: var(--muted); }
+    .flow__step .k { font-size: 0.7rem; font-weight: 800; color: var(--primary); }
+
+    .flow__arrow {
+        align-self: center;
+        color: var(--border-strong);
+        font-weight: 800;
+        font-size: 1.1rem;
+        padding: 0 0.1rem;
+    }
+
+    .steps { counter-reset: step; list-style: none; padding: 0; margin: 0.8rem 0; }
+
+    .steps > li {
+        position: relative;
+        padding: 0.15rem 0 0.9rem 2.5rem;
+        margin: 0;
+    }
+
+    .steps > li::before {
+        counter-increment: step;
+        content: counter(step);
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1.7rem;
+        height: 1.7rem;
+        border-radius: 50%;
+        background: var(--primary);
+        color: #fff;
+        font-size: 0.8rem;
+        font-weight: 800;
+        display: grid;
+        place-items: center;
+    }
+
+    .steps > li::after {
+        content: "";
+        position: absolute;
+        left: 0.84rem;
+        top: 1.85rem;
+        bottom: 0.15rem;
+        width: 2px;
+        background: var(--border);
+    }
+
+    .steps > li:last-child { padding-bottom: 0; }
+    .steps > li:last-child::after { display: none; }
+
+    .steps b { display: block; }
+
+    .kv {
+        display: grid;
+        grid-template-columns: 190px 1fr;
+        gap: 0.35rem 1rem;
+        margin: 0.7rem 0;
+        font-size: 0.9rem;
+    }
+
+    .kv dt { color: var(--muted); }
+    .kv dd { margin: 0; }
+
+    .mono { font-family: var(--mono); font-size: 0.86em; background: var(--surface-2); padding: 0.08rem 0.35rem; border-radius: 5px; }
+
+    .section-note { font-size: 0.82rem; color: var(--faint); }
+
+    /* ------------------------------------------------------------ mobile */
+    .menu-btn, .overlay { display: none; }
+
+    @media (max-width: 900px) {
+        .sidebar {
+            position: fixed;
+            inset: 0 auto 0 0;
+            transform: translateX(-100%);
+            transition: transform 0.22s ease;
+            box-shadow: 0 0 40px rgb(0 0 0 / 22%);
+        }
+
+        .sidebar.is-open { transform: translateX(0); }
+
+        .overlay.is-open {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: rgb(15 23 42 / 45%);
+            z-index: 35;
+        }
+
+        .menu-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            position: sticky;
+            top: 0.7rem;
+            margin: 0.7rem 1rem -0.2rem;
+            z-index: 30;
+            background: #fff;
+            border: 1px solid var(--border-strong);
+            border-radius: 10px;
+            padding: 0.5rem 0.8rem;
+            font-weight: 700;
+            font-size: 0.82rem;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+        }
+
+        .content-inner { padding: 0 1.1rem; }
+        .hero { padding: 2rem 0 1.8rem; }
+        .kv { grid-template-columns: 1fr; gap: 0.1rem; }
+        .kv dd { margin-bottom: 0.5rem; }
+    }
+
+    .to-top {
+        position: fixed;
+        right: 1.1rem;
+        bottom: 1.1rem;
+        z-index: 30;
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        border: 0;
+        background: var(--primary);
+        color: #fff;
+        font-size: 1.1rem;
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+        box-shadow: var(--shadow);
+    }
+
+    .to-top.is-visible { opacity: 1; pointer-events: auto; }
+
+    footer.doc-foot {
+        max-width: 1000px;
+        margin: 2.4rem auto 0;
+        padding: 1.2rem 2.2rem 0;
+        border-top: 1px solid var(--border);
+        color: var(--faint);
+        font-size: 0.8rem;
+    }
+
+    /* ------------------------------------------------------------ print */
+    @media print {
+        .sidebar, .menu-btn, .overlay, .to-top, .hero__actions { display: none !important; }
+        body { background: #fff; font-size: 11pt; }
+        .layout { display: block; }
+        .content-inner { max-width: none; padding: 0; }
+        .hero { padding: 0 0 1rem; border: 0; background: #fff; }
+        .doc-section { break-inside: avoid-page; }
+        .card, .callout, .table-wrap { box-shadow: none; }
+        a { color: inherit; text-decoration: none; }
+    }
+</style>
+</head>
+<body>
+
+<div class="layout">
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <span class="brand__mark"></span>
+            <div>
+                <div class="brand__title">Documentación del sistema</div>
+                <div class="brand__sub">Venta de entradas · Edición operativa</div>
+            </div>
+        </div>
+
+        <div class="search">
+            <input id="tocSearch" type="search" placeholder="Buscar una sección..." aria-label="Buscar sección">
+        </div>
+
+        <nav class="toc" id="toc" aria-label="Índice">
+            <a href="#intro">1. Introducción</a>
+            <a href="#flujo">2. Flujo general</a>
+            <a href="#acceso">3. Acceso y sesiones</a>
+            <a href="#roles">4. Roles y permisos</a>
+            <a href="#portal">5. Portal del comprador</a>
+            <a href="#medios-pago">6. Medios de pago</a>
+            <a href="#eventos">7. Eventos</a>
+            <a href="#tipos-entrada">8. Tipos de entrada</a>
+            <a href="#venta-portal">9. Venta en el portal</a>
+            <a href="#pos">10. Venta en caja (POS)</a>
+            <a href="#pagos">11. Pagos y acreditación</a>
+            <a href="#emision">12. Emisión de entradas</a>
+            <a href="#escaneo">13. Escaneo en la puerta</a>
+            <a href="#sorteos">14. Sorteos</a>
+            <a href="#estadisticas">15. Estadísticas y panel</a>
+            <a href="#usuarios">16. Usuarios y compradores</a>
+            <a href="#publicidad">17. Publicidad</a>
+            <a href="#configuracion">18. Configuración del sitio</a>
+            <a href="#mantenimiento">19. Mantenimiento</a>
+            <a href="#puesta-en-marcha">20. Puesta en marcha</a>
+            <a href="#faq">21. Preguntas frecuentes</a>
+            <a href="#glosario">22. Glosario</a>
+            <a href="#anexos">23. Anexos</a>
+        </nav>
+
+        <div class="side-foot">
+            Versión 1.0 · Octubre de 2026<br>
+            Documento operativo
+        </div>
+    </aside>
+
+    <div class="overlay" id="overlay"></div>
+
+    <main class="content">
+        <button class="menu-btn" id="menuBtn" type="button">☰ Índice</button>
+
+        <header class="hero">
+            <div class="content-inner">
+                <span class="hero__eyebrow">Manual de operación</span>
+                <h1>Documentación del sistema</h1>
+                <p>
+                    Todo el funcionamiento de la plataforma de venta de entradas: cómo se
+                    configura un evento, cómo se venden las entradas en el portal y en la
+                    boletería, cómo se cobran, cómo se emiten y cómo se validan en la puerta.
+                </p>
+                <div class="hero__meta">
+                    <span class="chip chip--primary">Venta online y presencial</span>
+                    <span class="chip">MercadoPago · Multipago · Efectivo</span>
+                    <span class="chip">QR y control de acceso</span>
+                    <span class="chip">Sorteos y estadísticas</span>
+                </div>
+                <div class="hero__actions">
+                    <a class="btn btn--primary" href="#intro">Comenzar a leer</a>
+                    <button class="btn btn--ghost" type="button" onclick="window.print()">Imprimir / Guardar PDF</button>
+                </div>
+            </div>
+        </header>
+
+        <div class="content-inner">
+
+            <!-- ================================================== 1 -->
+            <section class="doc-section" id="intro">
+                <h2><span class="num">1</span> Introducción</h2>
+                <p class="lead">
+                    El sistema permite organizar eventos, vender entradas con distintos medios
+                    de pago, emitir entradas con código QR y controlar el ingreso en la puerta.
+                    Además incluye sorteos, estadísticas, publicidad y administración de usuarios.
+                </p>
+
+                <div class="grid grid--halves">
+                    <div class="card">
+                        <h4>Dos productos, una misma base</h4>
+                        <p>
+                            El <strong>portal</strong> es la vidriera y el lugar de compra para el
+                            público. El <strong>panel</strong> es la herramienta de trabajo de los
+                            organizadores y operadores. Ambos comparten los mismos eventos,
+                            entradas y pagos.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Canales de venta</h4>
+                        <ul>
+                            <li><strong>Portal:</strong> el comprador elige y paga online.</li>
+                            <li><strong>POS (caja):</strong> el vendedor cobra en efectivo o genera un link de pago.</li>
+                            <li><strong>Link público:</strong> una venta se comparte por WhatsApp sin que el comprador tenga cuenta.</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h4>Control de acceso</h4>
+                        <p>
+                            Cada entrada tiene un QR firmado y un número correlativo. El cajero lo
+                            escanea desde el celular o tablet; el sistema responde al instante si la
+                            entrada es válida, ya fue usada o pertenece a otro evento.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Información y difusión</h4>
+                        <ul>
+                            <li>Panel con recaudación, órdenes, escaneos y próximos eventos.</li>
+                            <li>Estadísticas por evento y por medio de pago, con exportación CSV.</li>
+                            <li>Sorteos con ventana de proyección para pantallas.</li>
+                            <li>Publicidad dentro del portal.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="callout callout--info">
+                    <strong>Alcance de este documento</strong>
+                    <p>
+                        Está pensado para administradores y operadores. Explica qué hace cada
+                        módulo y cómo se usa, sin entrar en detalles técnicos de programación.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 2 -->
+            <section class="doc-section" id="flujo">
+                <h2><span class="num">2</span> Flujo general</h2>
+                <p class="lead">
+                    De la configuración de un evento hasta el escaneo en la puerta, el recorrido
+                    siempre sigue las mismas seis etapas.
+                </p>
+
+                <div class="flow">
+                    <div class="flow__step">
+                        <span class="k">1</span>
+                        <b>Configurar medios de pago</b>
+                        <span>Se habilitan las cuentas y las modalidades que se van a cobrar.</span>
+                    </div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step">
+                        <span class="k">2</span>
+                        <b>Crear el evento</b>
+                        <span>Datos, portada, numeración de entradas y orden en el portal.</span>
+                    </div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step">
+                        <span class="k">3</span>
+                        <b>Cargar entradas</b>
+                        <span>Tipos, precios, stock, cuotas, pulseras y flyers.</span>
+                    </div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step">
+                        <span class="k">4</span>
+                        <b>Publicar y vender</b>
+                        <span>El evento se muestra en el portal y se vende también en el POS.</span>
+                    </div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step">
+                        <span class="k">5</span>
+                        <b>Pagar y acreditar</b>
+                        <span>Efectivo en el acto, o pago online confirmado por el proveedor.</span>
+                    </div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step">
+                        <span class="k">6</span>
+                        <b>Emitir y escanear</b>
+                        <span>La entrada queda disponible con su QR y se valida en la puerta.</span>
+                    </div>
+                </div>
+
+                <div class="callout callout--tip">
+                    <strong>Regla de oro</strong>
+                    <p>
+                        Una entrada solo sirve si la orden está pagada. El sistema no habilita el
+                        ingreso de entradas pendientes, canceladas o vencidas.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 3 -->
+            <section class="doc-section" id="acceso">
+                <h2><span class="num">3</span> Acceso y sesiones</h2>
+
+                <h3>Operadores del panel</h3>
+                <p>
+                    Los operadores ingresan desde el acceso del panel con su <strong>email o DNI</strong>
+                    y su contraseña. El sistema detecta el rol y muestra únicamente las secciones
+                    que le corresponden.
+                </p>
+
+                <h3>Compradores</h3>
+                <p>
+                    Los compradores ingresan al portal con su <strong>DNI</strong> y contraseña. Para
+                    crear una cuenta se piden nombre, email, DNI, teléfono (opcional), contraseña
+                    y la aceptación de los términos.
+                </p>
+
+                <div class="grid grid--2">
+                    <div class="card">
+                        <h4>Cuenta creada desde el portal</h4>
+                        <p>
+                            El comprador se registra solo. Puede comprar, ver sus entradas y
+                            descargar sus QR desde “Mis entradas”.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Cuenta creada desde el POS</h4>
+                        <p>
+                            Si el comprador no tiene cuenta, el vendedor puede crearla con el DNI.
+                            La contraseña inicial es el mismo DNI y puede cambiarse luego desde el
+                            portal.
+                        </p>
+                    </div>
+                </div>
+
+                <h3>Seguridad de la sesión</h3>
+                <ul>
+                    <li>La sesión se mantiene entre visitas y se puede cerrar desde el botón “Salir”.</li>
+                    <li>Un aviso aparece cuando la sesión está por vencer, con la opción de continuar.</li>
+                    <li>Si un administrador deshabilita a un operador, su sesión se cierra automáticamente.</li>
+                </ul>
+            </section>
+
+            <!-- ================================================== 4 -->
+            <section class="doc-section" id="roles">
+                <h2><span class="num">4</span> Roles y permisos</h2>
+                <p class="lead">
+                    Cada usuario ve solo lo que necesita. El administrador es el único con acceso
+                    total a la configuración.
+                </p>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rol</th>
+                                <th>Para qué sirve</th>
+                                <th>Qué puede hacer</th>
+                                <th>Alcance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Administrador</strong></td>
+                                <td>Dueño del sistema</td>
+                                <td>Todo el panel: eventos, medios de pago, publicidad, configuración, usuarios, estadísticas, sorteos, POS y escaneo.</td>
+                                <td>Todos los eventos</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Administrativo</strong></td>
+                                <td>Coordina eventos</td>
+                                <td>Estadísticas, alta de vendedores, POS y sorteos. No modifica configuración global.</td>
+                                <td>Solo eventos asignados</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Vendedor</strong></td>
+                                <td>Boletería / caja</td>
+                                <td>Vende desde el POS. Cobra efectivo y los medios que tenga asignados.</td>
+                                <td>Solo eventos asignados</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Cajero</strong></td>
+                                <td>Puerta del evento</td>
+                                <td>Escanea entradas, entrega pulseras y consulta el historial de escaneos.</td>
+                                <td>Solo eventos asignados</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Comprador</strong></td>
+                                <td>Público</td>
+                                <td>Compra entradas, consulta sus compras y descarga sus QR. No accede al panel.</td>
+                                <td>Sus propias compras</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="callout callout--warn">
+                    <strong>Asignación de eventos</strong>
+                    <p>
+                        A vendedores, cajeros y administrativos se les asignan eventos concretos.
+                        Si un operador no tiene eventos asignados, no puede vender ni escanear nada.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 5 -->
+            <section class="doc-section" id="portal">
+                <h2><span class="num">5</span> Portal del comprador</h2>
+                <p class="lead">
+                    Es la cara pública del sistema. Se puede recorrer el catálogo sin tener cuenta;
+                    la cuenta se pide recién al comprar.
+                </p>
+
+                <h3>Página de eventos</h3>
+                <ul>
+                    <li>Muestra los eventos <strong>publicados</strong>, respetando el orden manual definido en el panel.</li>
+                    <li>Cada evento ocupa una fila con su flyer en miniatura.</li>
+                    <li>Al tocar el flyer se amplía la imagen; al tocar el resto de la fila se abre el evento.</li>
+                    <li>La lista se actualiza sola cuando cambia el stock o el estado de un evento.</li>
+                </ul>
+
+                <h3>Detalle del evento</h3>
+                <ul>
+                    <li>Nombre, fecha, hora, lugar y descripción.</li>
+                    <li>Tipos de entrada con precio, disponibilidad, máximo por compra y cuotas.</li>
+                    <li>Selector de cantidad por tipo.</li>
+                    <li>Total de la compra y botón para continuar.</li>
+                </ul>
+
+                <h3>Mis entradas</h3>
+                <ul>
+                    <li>Muestra cada entrada con su evento, tipo, estado y QR.</li>
+                    <li>Debajo del QR aparece el número de la entrada (por ejemplo, <span class="mono">N° 0000123</span>).</li>
+                    <li>El QR se puede mostrar en pantalla, imprimir o guardar.</li>
+                    <li>También se puede compartir un link público de la venta.</li>
+                </ul>
+
+                <h3>Mis compras</h3>
+                <ul>
+                    <li>Historial de órdenes con su estado y total.</li>
+                    <li>Si una orden quedó pendiente, se puede reintentar el pago.</li>
+                    <li>Las órdenes pendientes se pueden cancelar, liberando el stock.</li>
+                </ul>
+
+                <h3>Mi cuenta</h3>
+                <ul>
+                    <li>Edición del nombre y del teléfono.</li>
+                    <li>Cambio de contraseña.</li>
+                </ul>
+
+                <h3>Link público de una venta</h3>
+                <p>
+                    Es un enlace único (por ejemplo, <span class="mono">/e/…</span>) que muestra las
+                    entradas de una compra <strong>sin pedir sesión</strong>. Se usa para enviar las
+                    entradas por WhatsApp o para que otra persona las presente en la puerta. Los QR
+                    solo aparecen cuando la orden está pagada.
+                </p>
+
+                <div class="callout callout--info">
+                    <strong>Publicidad</strong>
+                    <p>
+                        El portal puede mostrar banners y anuncios configurados desde el panel, tanto
+                        generales como propios de un evento.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 6 -->
+            <section class="doc-section" id="medios-pago">
+                <h2><span class="num">6</span> Medios de pago</h2>
+                <p class="lead">
+                    El módulo <strong>Medios de pago</strong> define qué se puede cobrar. La
+                    configuración tiene dos niveles: general (del sistema) y por evento.
+                </p>
+
+                <div class="grid grid--3">
+                    <div class="card">
+                        <h4>Efectivo</h4>
+                        <p>
+                            Se cobra siempre en el POS, sin configuración. La orden se marca pagada
+                            en el acto y se entrega el comprobante con los QR.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>MercadoPago</h4>
+                        <p>
+                            Cobro online con Checkout Pro (tarjeta, Rapipago, Pago Fácil). Puede
+                            usarse la cuenta de la plataforma o conectar la cuenta de cada evento.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Multipago</h4>
+                        <p>
+                            Dos modalidades: <strong>QR</strong> (se escanea con una billetera) y
+                            <strong>botón de pago</strong> (código de barras). Puede usarse la cuenta
+                            global o una cuenta propia por evento.
+                        </p>
+                    </div>
+                </div>
+
+                <h3>Configuración general</h3>
+                <ul>
+                    <li>Activar o desactivar un medio para todo el sistema.</li>
+                    <li>Cargar credenciales y datos de la cuenta.</li>
+                    <li>Probar la conexión y validar pagos.</li>
+                    <li>Copiar la URL de notificaciones (webhook) del proveedor.</li>
+                </ul>
+
+                <h3>Configuración por evento</h3>
+                <ul>
+                    <li>Elegir con qué medios cobra ese evento en particular.</li>
+                    <li>Cargar credenciales propias del evento (opcionales).</li>
+                    <li>En Multipago, habilitar por separado QR y botón de pago.</li>
+                    <li>Todo lo que quede vacío en el evento usa la configuración general.</li>
+                </ul>
+
+                <div class="callout callout--tip">
+                    <strong>Qué medios se ofrecen realmente</strong>
+                    <p>
+                        Un medio aparece disponible cuando está activo en el sistema, habilitado en
+                        el evento y además tiene las credenciales necesarias. MercadoPago sin token
+                        y Multipago sin cuenta no se muestran.
+                    </p>
+                </div>
+
+                <div class="callout callout--info">
+                    <strong>Resumen en el evento</strong>
+                    <p>
+                        La pantalla de edición del evento muestra un resumen de solo lectura con los
+                        medios con los que se va a cobrar. El alta y las credenciales se administran
+                        únicamente en “Medios de pago”.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 7 -->
+            <section class="doc-section" id="eventos">
+                <h2><span class="num">7</span> Eventos</h2>
+                <p class="lead">
+                    El evento es la unidad central: agrupa sus tipos de entrada, ventas, entradas,
+                    escaneos y sorteos.
+                </p>
+
+                <h3>Datos del evento</h3>
+                <ul>
+                    <li>Nombre, descripción, fecha y hora de inicio y fin, lugar y capacidad.</li>
+                    <li>Portada (flyer principal) que se muestra en el portal.</li>
+                    <li>Estado: <span class="badge badge--draft">Borrador</span>, <span class="badge badge--published">Publicado</span>, <span class="badge badge--closed">Cerrado</span> o <span class="badge badge--cancelled">Cancelado</span>.</li>
+                </ul>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Estado</th><th>Qué significa</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><span class="badge badge--draft">Borrador</span></td><td>Se puede editar, pero no aparece en el portal ni se vende.</td></tr>
+                            <tr><td><span class="badge badge--published">Publicado</span></td><td>Visible en el portal y habilitado para vender en el POS.</td></tr>
+                            <tr><td><span class="badge badge--closed">Cerrado</span></td><td>Deja de ofrecerse públicamente; queda para consulta y cierre administrativo.</td></tr>
+                            <tr><td><span class="badge badge--cancelled">Cancelado</span></td><td>Evento anulado. No se vende.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>Numeración de entradas</h3>
+                <p>
+                    Al crear el evento se define el <strong>primer número</strong> de entrada y la
+                    <strong>cantidad de dígitos</strong> con ceros a la izquierda. Por ejemplo: primer
+                    número <span class="mono">1</span>, 7 dígitos → <span class="mono">0000001</span>,
+                    <span class="mono">0000002</span>, etc.; o primer número <span class="mono">300</span>
+                    → <span class="mono">300</span>, <span class="mono">301</span>.
+                </p>
+                <ul>
+                    <li>La numeración es correlativa y propia de cada evento.</li>
+                    <li>Se usa para mostrar la entrada en el QR, en el panel y en los sorteos.</li>
+                    <li>Queda fijada al crear el evento: después no se puede cambiar.</li>
+                </ul>
+
+                <h3>Orden de los eventos</h3>
+                <ul>
+                    <li>En el listado del panel, los eventos se pueden arrastrar y soltar para cambiar su orden.</li>
+                    <li>Ese mismo orden es el que ve el público en “Próximos eventos”.</li>
+                    <li>Los eventos nuevos se agregan al final.</li>
+                    <li>El orden se puede ajustar con los filtros de búsqueda y estado limpios.</li>
+                </ul>
+
+                <h3>Eliminar un evento</h3>
+                <p>
+                    Un evento sin ventas ni entradas se puede eliminar. Si ya tiene historia
+                    (órdenes, entradas o escaneos), el sistema no lo borra: lo marca como cancelado
+                    para no perder información.
+                </p>
+            </section>
+
+            <!-- ================================================== 8 -->
+            <section class="doc-section" id="tipos-entrada">
+                <h2><span class="num">8</span> Tipos de entrada</h2>
+                <p class="lead">
+                    Cada evento puede tener uno o varios tipos de entrada (por ejemplo, General, VIP,
+                    Menores). Se editan en la misma pantalla del evento.
+                </p>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Campo</th><th>Qué define</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><strong>Nombre y descripción</strong></td><td>Cómo se muestra el tipo en el portal y en la puerta.</td></tr>
+                            <tr><td><strong>Precio</strong></td><td>Valor unitario de la entrada.</td></tr>
+                            <tr><td><strong>Stock</strong></td><td>Cantidad disponible. Vacío = ilimitado.</td></tr>
+                            <tr><td><strong>Máximo por compra</strong></td><td>Cuántas unidades puede llevar una misma persona en una compra.</td></tr>
+                            <tr><td><strong>Vendidas</strong></td><td>Contador automático; no se edita.</td></tr>
+                            <tr><td><strong>Pago</strong></td><td>Si admite una cuota, cuotas o ambas.</td></tr>
+                            <tr><td><strong>Máximo de cuotas</strong></td><td>Techo de financiación cuando se permiten cuotas.</td></tr>
+                            <tr><td><strong>Color y texto de pulsera</strong></td><td>Indicación visual para la puerta (por ejemplo, “VIP” en dorado).</td></tr>
+                            <tr><td><strong>Flyer</strong></td><td>Imagen propia del tipo de entrada.</td></tr>
+                            <tr><td><strong>Visible</strong></td><td>Si se ofrece o se oculta temporalmente.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="callout callout--warn">
+                    <strong>Stock y capacidad</strong>
+                    <p>
+                        El stock de cada tipo es lo que controla la venta. La capacidad del evento es
+                        un dato de referencia y no reemplaza al stock.
+                    </p>
+                </div>
+
+                <ul>
+                    <li>Un tipo de entrada con ventas no se puede eliminar.</li>
+                    <li>Se puede ocultar sin borrarlo (por ejemplo, para agotar una preventa).</li>
+                    <li>Las entradas de un tipo agotado dejan de ofrecerse en el portal.</li>
+                </ul>
+            </section>
+
+            <!-- ================================================== 9 -->
+            <section class="doc-section" id="venta-portal">
+                <h2><span class="num">9</span> Venta en el portal</h2>
+                <p class="lead">
+                    Es la compra online, de principio a fin.
+                </p>
+
+                <ol class="steps">
+                    <li>
+                        <b>Elegir el evento</b>
+                        El comprador entra desde “Próximos eventos” y abre el evento.
+                    </li>
+                    <li>
+                        <b>Elegir las entradas</b>
+                        Selecciona tipo y cantidad. El sistema respeta stock, máximo por compra y la
+                        ventana de venta.
+                    </li>
+                    <li>
+                        <b>Iniciar sesión (si hace falta)</b>
+                        La cuenta se pide al comprar. Después del ingreso, el comprador vuelve al
+                        mismo evento sin perder la selección.
+                    </li>
+                    <li>
+                        <b>Crear la orden</b>
+                        La orden queda <span class="badge badge--pending">Pendiente</span> y las
+                        entradas se reservan para esa compra.
+                    </li>
+                    <li>
+                        <b>Elegir medio de pago</b>
+                        Si el evento tiene un solo medio, se avanza directo. Si hay varios, se
+                        muestra la pantalla de elección.
+                    </li>
+                    <li>
+                        <b>Pagar</b>
+                        MercadoPago redirige a su checkout; Multipago muestra el QR o el código de
+                        barras. La orden se acredita sola cuando el proveedor confirma el pago.
+                    </li>
+                    <li>
+                        <b>Ver el resultado</b>
+                        Si el pago se confirmó, el comprador ya tiene sus entradas con QR. Si quedó
+                        pendiente, puede reintentar desde “Mis compras”.
+                    </li>
+                </ol>
+
+                <div class="callout callout--info">
+                    <strong>Reserva y vencimiento</strong>
+                    <p>
+                        Mientras una orden está pendiente, sus entradas quedan reservadas. Si el
+                        comprador abandona el pago, la orden vence automáticamente a las
+                        <strong>23:59:59 del mismo día en que se creó</strong> (o antes, si termina la
+                        venta del tipo) y el stock vuelve a estar disponible.
+                    </p>
+                    <p>
+                        Si el precio de las entradas cambia antes del pago, la orden se invalida y el
+                        comprador debe iniciar una compra nueva con el precio vigente.
+                    </p>
+                </div>
+
+                <h3>Reglas de cuotas</h3>
+                <ul>
+                    <li>Si la compra mezcla tipos de entrada, todos deben admitir la misma financiación.</li>
+                    <li>El máximo de cuotas es el del tipo más restrictivo del carrito.</li>
+                    <li>El costo financiero lo determina el proveedor de pago, no el sistema.</li>
+                </ul>
+            </section>
+
+            <!-- ================================================== 10 -->
+            <section class="doc-section" id="pos">
+                <h2><span class="num">10</span> Venta en caja (POS)</h2>
+                <p class="lead">
+                    Es la venta presencial. La usa el vendedor, el administrativo o el administrador
+                    desde una computadora, tablet o celular.
+                </p>
+
+                <ol class="steps">
+                    <li>
+                        <b>Elegir el evento</b>
+                        Solo se listan eventos publicados y asignados al operador.
+                    </li>
+                    <li>
+                        <b>Cargar las entradas</b>
+                        Se eligen tipos y cantidades. Se respetan stock, máximo por compra y precios.
+                    </li>
+                    <li>
+                        <b>Identificar al comprador</b>
+                        Se busca por DNI. Si no existe, se puede crear en el momento (la contraseña
+                        inicial es el DNI).
+                    </li>
+                    <li>
+                        <b>Elegir la forma de pago</b>
+                        Efectivo o un medio habilitado para el operador y para el evento.
+                    </li>
+                    <li>
+                        <b>Confirmar</b>
+                        En efectivo, la venta queda pagada al instante. Con un medio online, la orden
+                        queda pendiente y se genera un link, QR o código para enviarle al comprador.
+                    </li>
+                    <li>
+                        <b>Entregar el comprobante</b>
+                        Se muestra el comprobante con los QR de cada entrada. Se puede imprimir o
+                        guardar como PDF.
+                    </li>
+                </ol>
+
+                <div class="grid grid--2">
+                    <div class="card">
+                        <h4>Efectivo</h4>
+                        <p>
+                            La orden se acredita en el acto. El comprobante incluye los QR y las
+                            entradas quedan disponibles de inmediato.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Link o código de pago</h4>
+                        <p>
+                            La venta queda pendiente. El vendedor puede reenviar el link o el código
+                            desde el historial hasta que el pago se acredite.
+                        </p>
+                    </div>
+                </div>
+
+                <h3>Historial de ventas</h3>
+                <ul>
+                    <li>El vendedor ve sus ventas; el administrativo y el administrador ven las de sus eventos.</li>
+                    <li>Se puede consultar el comprobante y reenviar el link de pago de una venta pendiente.</li>
+                    <li>Se puede filtrar por medio de pago.</li>
+                </ul>
+
+                <div class="callout callout--warn">
+                    <strong>Medios del operador</strong>
+                    <p>
+                        El efectivo está siempre disponible. Los demás medios aparecen solo si el
+                        evento los tiene habilitados y el operador tiene permiso para cobrarlos.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 11 -->
+            <section class="doc-section" id="pagos">
+                <h2><span class="num">11</span> Pagos y acreditación</h2>
+                <p class="lead">
+                    Una orden pasa de pendiente a pagada cuando el medio confirma el cobro. El
+                    sistema está preparado para que la confirmación llegue aunque el comprador cierre
+                    el navegador.
+                </p>
+
+                <h3>MercadoPago</h3>
+                <ul>
+                    <li>El comprador es redirigido al checkout de MercadoPago.</li>
+                    <li>Puede pagar con tarjeta, Rapipago o Pago Fácil, según su cuenta.</li>
+                    <li>Cuando el pago se aprueba, MercadoPago avisa al sistema y la orden se acredita.</li>
+                    <li>Si la notificación no llega, el administrador puede usar <strong>Reconciliar</strong> en la orden: el sistema consulta los pagos y la acredita manualmente.</li>
+                </ul>
+
+                <h3>Multipago</h3>
+                <ul>
+                    <li><strong>QR:</strong> el comprador escanea el código con una billetera virtual. El importe y el vencimiento viajan dentro del QR.</li>
+                    <li><strong>Botón de pago:</strong> se muestra un código de barras para pagar en Multipago.</li>
+                    <li>La confirmación llega por una única URL de notificaciones para toda la instalación.</li>
+                    <li>Desde el panel se pueden <strong>validar pagos</strong> consultando los cobros de la cuenta.</li>
+                </ul>
+
+                <h3>Efectivo</h3>
+                <ul>
+                    <li>Se acredita en el acto desde el POS.</li>
+                    <li>No depende de ninguna notificación externa.</li>
+                </ul>
+
+                <h3>Estados de una orden</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Estado</th><th>Significado</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><span class="badge badge--pending">Pendiente</span></td><td>Creada, con stock reservado, esperando el pago.</td></tr>
+                            <tr><td><span class="badge badge--paid">Pagada</span></td><td>Pago confirmado. Las entradas quedan habilitadas.</td></tr>
+                            <tr><td><span class="badge badge--cancelled">Cancelada</span></td><td>Anulada antes de pagarse. El stock se libera.</td></tr>
+                            <tr><td><span class="badge badge--expired">Vencida</span></td><td>Pendiente que no se pagó antes de las 23:59:59 del día en que se creó (o antes del fin de venta). El stock se libera.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="callout callout--tip">
+                    <strong>Pago tardío</strong>
+                    <p>
+                        Si el proveedor aprobó el pago antes de las 23:59:59 pero el aviso llegó
+                        después, el sistema acredita la orden y reactiva la reserva. Si el pago se
+                        aprobó fuera de ese horario, no se acredita y queda para revisión o
+                        reembolso manual.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 12 -->
+            <section class="doc-section" id="emision">
+                <h2><span class="num">12</span> Emisión de entradas</h2>
+                <p class="lead">
+                    Las entradas se emiten al crear la orden. Cada una es única e irrepetible.
+                </p>
+
+                <div class="grid grid--3">
+                    <div class="card">
+                        <h4>Número correlativo</h4>
+                        <p>
+                            Propio del evento, con el inicio y los ceros configurados al crearlo.
+                            Es el número que se muestra debajo del QR y en los sorteos.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>Identificador único</h4>
+                        <p>
+                            Cada entrada tiene un código interno irrepetible que la distingue de
+                            todas las demás.
+                        </p>
+                    </div>
+                    <div class="card">
+                        <h4>QR firmado</h4>
+                        <p>
+                            El QR incluye una firma digital. Si alguien modifica el contenido, el
+                            escáner lo rechaza.
+                        </p>
+                    </div>
+                </div>
+
+                <h3>Dónde se ven y se entregan</h3>
+                <ul>
+                    <li><strong>Portal:</strong> “Mis entradas”, con QR y número.</li>
+                    <li><strong>Link público:</strong> la venta compartida por WhatsApp, sin sesión.</li>
+                    <li><strong>POS:</strong> comprobante impreso o guardado como PDF.</li>
+                    <li><strong>Panel:</strong> listado de entradas con reimpresión del QR.</li>
+                </ul>
+
+                <h3>Estados de una entrada</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Estado</th><th>Significado</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><span class="badge badge--valid">Válida</span></td><td>Emitida y todavía no usada.</td></tr>
+                            <tr><td><span class="badge badge--used">Usada</span></td><td>Ya ingresó al evento. No puede volver a usarse.</td></tr>
+                            <tr><td><span class="badge badge--cancelled">Cancelada</span></td><td>Anulada antes del ingreso (solo si la orden no estaba pagada).</td></tr>
+                            <tr><td><span class="badge badge--expired">Vencida</span></td><td>Pertenece a una orden que no se pagó antes del final del día (o del fin de venta).</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="callout callout--info">
+                    <strong>Anulación</strong>
+                    <p>
+                        Una entrada de una orden impaga se puede anular y libera su stock. Una entrada
+                        pagada no se anula desde el listado: primero debe reembolsarse la orden. Una
+                        entrada usada no se puede anular.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 13 -->
+            <section class="doc-section" id="escaneo">
+                <h2><span class="num">13</span> Escaneo en la puerta</h2>
+                <p class="lead">
+                    Es el control de acceso. El cajero usa la cámara del dispositivo o pega el código
+                    manualmente.
+                </p>
+
+                <ol class="steps">
+                    <li>
+                        <b>Elegir el evento</b>
+                        El cajero solo puede escanear eventos que tenga asignados.
+                    </li>
+                    <li>
+                        <b>Escanear el QR</b>
+                        Se apunta la cámara al código. También se puede pegar el código de la entrada.
+                    </li>
+                    <li>
+                        <b>Revisar los datos del comprador</b>
+                        El sistema valida la firma y abre un modal con nombre, DNI, email, teléfono,
+                        tipo de entrada, estado y pulsera. La entrada todavía no se consume.
+                    </li>
+                    <li>
+                        <b>Validar o cancelar</b>
+                        “Validar entrada” marca el ingreso; “Cancelar” cierra el modal sin consumir
+                        nada. Si la entrada ya fue usada o es inválida, el modal muestra el motivo y
+                        solo permite cerrar.
+                    </li>
+                    <li>
+                        <b>Confirmar el ingreso</b>
+                        Al validar, el sistema vuelve a comprobar la firma, el evento, el pago y el
+                        estado. Si otra puerta la usó en el medio, muestra “ya usada”.
+                    </li>
+                    <li>
+                        <b>Mostrar el resultado y registrar</b>
+                        Un color y un mensaje grande indican si puede pasar. La entrada queda usada en
+                        el acto y el escaneo queda en el historial.
+                    </li>
+                </ol>
+
+                <div class="callout callout--info">
+                    <strong>El escaneo no consume solo</strong>
+                    <p>
+                        Escanear abre la revisión, pero la entrada se marca como usada recién al tocar
+                        “Validar entrada”. Así el cajero puede comparar el nombre y el DNI del
+                        comprador antes de dejar pasar.
+                    </p>
+                </div>
+
+                <h3>Resultados posibles</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Resultado</th><th>Qué significa</th><th>Qué hacer</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><span class="badge badge--valid">Válida</span></td>
+                                <td>Todo correcto.</td>
+                                <td>Entregar la pulsera y dejar pasar.</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge--used">Ya usada</span></td>
+                                <td>La entrada ya ingresó antes.</td>
+                                <td>No dejar pasar. Revisar con supervisión.</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge--closed">Otro evento</span></td>
+                                <td>La entrada pertenece a un evento distinto.</td>
+                                <td>Indicar al comprador el evento correcto.</td>
+                            </tr>
+                            <tr>
+                                <td><span class="badge badge--cancelled">Inválida</span></td>
+                                <td>QR adulterado, entrada inexistente, impaga, vencida o cancelada.</td>
+                                <td>No dejar pasar. Verificar en el panel.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="callout callout--tip">
+                    <strong>Una sola entrada, un solo ingreso</strong>
+                    <p>
+                        Si dos puertas escanean el mismo QR al mismo tiempo, solo una lo acepta. La
+                        otra recibe “ya usada”, evitando que la misma entrada pase dos veces.
+                    </p>
+                </div>
+
+                <h3>Pulseras</h3>
+                <ul>
+                    <li>Al validar la entrada, se registra que la pulsera fue entregada.</li>
+                    <li>El color y el texto salen del tipo de entrada.</li>
+                    <li>También se puede marcar o revertir la entrega manualmente desde el panel.</li>
+                    <li>No se puede quitar la pulsera de una entrada ya usada.</li>
+                </ul>
+
+                <h3>Historial de escaneos</h3>
+                <ul>
+                    <li>Muestra fecha, evento, entrada, operador y resultado.</li>
+                    <li>Se puede filtrar por evento y por resultado.</li>
+                    <li>El cajero ve únicamente los escaneos de sus eventos.</li>
+                    <li>Los intentos rechazados quedan registrados; la entrada válida se registra al confirmar.</li>
+                </ul>
+            </section>
+
+            <!-- ================================================== 14 -->
+            <section class="doc-section" id="sorteos">
+                <h2><span class="num">14</span> Sorteos</h2>
+                <p class="lead">
+                    Permite sortear premios entre las entradas de un evento, con una ventana pública
+                    para proyectar los resultados.
+                </p>
+
+                <h3>Configuración del sorteo</h3>
+                <ul>
+                    <li><strong>Evento:</strong> el sorteo pertenece a un evento.</li>
+                    <li><strong>Entradas en juego:</strong> se pueden filtrar por rango de números, rango de fechas de compra/pago y medio de pago.</li>
+                    <li><strong>Elegibilidad:</strong> solo pagas (por defecto), incluir usadas, incluir canceladas y permitir que una misma entrada gane más de un premio.</li>
+                    <li><strong>Premios:</strong> una lista ordenada de premios. Cada uno se sortea por separado.</li>
+                </ul>
+
+                <div class="callout callout--info">
+                    <strong>Resumen en vivo</strong>
+                    <p>
+                        Mientras se configura el sorteo, el panel muestra cuántas entradas entran en
+                        juego con los filtros elegidos, incluso antes de guardar.
+                    </p>
+                </div>
+
+                <h3>Sortear</h3>
+                <ol class="steps">
+                    <li>
+                        <b>Elegir el premio</b>
+                        Cada premio tiene su botón “Sortear”.
+                    </li>
+                    <li>
+                        <b>El sistema elige al azar</b>
+                        La elección se hace en el servidor, sobre las entradas elegibles.
+                    </li>
+                    <li>
+                        <b>Revelar el resultado</b>
+                        Se muestra el nombre del comprador y el número de la entrada con una animación.
+                    </li>
+                    <li>
+                        <b>Re-sortear si hace falta</b>
+                        Se puede reinicializar un premio y volver a sortearlo. Queda registro de cada acción.
+                    </li>
+                </ol>
+
+                <h3>Ventana de proyección</h3>
+                <ul>
+                    <li>Se abre una pantalla pública (sin sesión) para proyectar los premios y los ganadores.</li>
+                    <li>El resultado aparece en vivo cuando el operador sortea.</li>
+                    <li>La pantalla también se actualiza sola si se corta la conexión en tiempo real.</li>
+                </ul>
+
+                <div class="callout callout--warn">
+                    <strong>Alcance</strong>
+                    <p>
+                        El administrador ve todos los sorteos; el administrativo, solo los de sus
+                        eventos. Un sorteo no se puede eliminar si tiene premios ya adjudicados sin
+                        reiniciarlos primero.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 15 -->
+            <section class="doc-section" id="estadisticas">
+                <h2><span class="num">15</span> Estadísticas y panel</h2>
+
+                <h3>Panel (inicio)</h3>
+                <ul>
+                    <li>Recaudación, órdenes pagadas y pendientes, y escaneos de los últimos 30 días.</li>
+                    <li>Últimas órdenes y próximos eventos.</li>
+                    <li>Filtros por evento y por medio de pago.</li>
+                </ul>
+
+                <h3>Estadísticas</h3>
+                <ul>
+                    <li>Facturado total.</li>
+                    <li>Órdenes pagadas y pendientes.</li>
+                    <li>Entradas usadas y disponibles.</li>
+                    <li>Cantidad de escaneos.</li>
+                    <li>Facturado por evento.</li>
+                    <li>Venta por tipo de entrada.</li>
+                    <li>Filtros por evento y medio de pago.</li>
+                    <li>Exportación a CSV.</li>
+                </ul>
+
+                <div class="callout callout--info">
+                    <strong>Alcance de las estadísticas</strong>
+                    <p>
+                        El administrador ve todos los eventos. El administrativo ve únicamente los
+                        eventos que tiene asignados.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 16 -->
+            <section class="doc-section" id="usuarios">
+                <h2><span class="num">16</span> Usuarios y compradores</h2>
+
+                <h3>Operadores del panel</h3>
+                <ul>
+                    <li>Alta y edición de usuarios con su rol.</li>
+                    <li>Asignación de eventos: vendedores, cajeros y administrativos solo operan sobre los eventos asignados.</li>
+                    <li>Asignación de medios de pago para los roles que venden (además del efectivo).</li>
+                    <li>Habilitar o deshabilitar un usuario. Al deshabilitarlo, su sesión se cierra al instante.</li>
+                    <li>Restablecer contraseña.</li>
+                </ul>
+
+                <div class="callout callout--warn">
+                    <strong>Administrativo</strong>
+                    <p>
+                        El administrativo solo gestiona vendedores de sus propios eventos. No puede
+                        crear administradores ni modificar la configuración global.
+                    </p>
+                </div>
+
+                <h3>Compradores</h3>
+                <ul>
+                    <li>El listado de compradores lo ve el administrador.</li>
+                    <li>Se crean desde el registro del portal o desde el POS.</li>
+                    <li>El DNI es el identificador de acceso y se guarda sin puntos ni guiones.</li>
+                    <li>Se pueden buscar por nombre, DNI o email.</li>
+                </ul>
+            </section>
+
+            <!-- ================================================== 17 -->
+            <section class="doc-section" id="publicidad">
+                <h2><span class="num">17</span> Publicidad</h2>
+                <p class="lead">
+                    Permite mostrar anuncios dentro del portal, tanto generales como de un evento
+                    puntual.
+                </p>
+
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Campo</th><th>Qué define</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td><strong>Nombre</strong></td><td>Identificación interna del anuncio.</td></tr>
+                            <tr><td><strong>Imagen</strong></td><td>Arte que se muestra en el portal.</td></tr>
+                            <tr><td><strong>Enlace</strong></td><td>Destino al tocar el anuncio (opcional).</td></tr>
+                            <tr><td><strong>Ubicación</strong></td><td>Banner superior, zona superior o lateral.</td></tr>
+                            <tr><td><strong>Evento</strong></td><td>Vacío = global; con evento = solo en ese evento.</td></tr>
+                            <tr><td><strong>Vigencia</strong></td><td>Fecha de inicio y fin (opcional).</td></tr>
+                            <tr><td><strong>Habilitado y orden</strong></td><td>Si se muestra y en qué orden.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <ul>
+                    <li>La publicidad del portal se divide por zonas: no se repite el mismo bloque en todas.</li>
+                    <li>Un anuncio de evento se suma a los globales en la página de ese evento.</li>
+                </ul>
+            </section>
+
+            <!-- ================================================== 18 -->
+            <section class="doc-section" id="configuracion">
+                <h2><span class="num">18</span> Configuración del sitio</h2>
+                <p class="lead">
+                    Define la identidad y los mensajes que ve el comprador en el portal.
+                </p>
+
+                <div class="grid grid--2">
+                    <div class="card">
+                        <h4>Identidad</h4>
+                        <ul>
+                            <li>Nombre del negocio.</li>
+                            <li>Logo del portal.</li>
+                            <li>Color principal y color secundario.</li>
+                        </ul>
+                    </div>
+                    <div class="card">
+                        <h4>Mensajes</h4>
+                        <ul>
+                            <li>Mensaje de bienvenida.</li>
+                            <li>Mensaje de pago aprobado.</li>
+                            <li>Mensaje de pago rechazado.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="callout callout--info">
+                    <strong>Solo administrador</strong>
+                    <p>
+                        Esta pantalla, igual que la de mantenimiento, es exclusiva del
+                        administrador.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 19 -->
+            <section class="doc-section" id="mantenimiento">
+                <h2><span class="num">19</span> Mantenimiento</h2>
+                <p class="lead">
+                    Herramientas de alto impacto, reservadas al administrador.
+                </p>
+
+                <h3>Modo Test</h3>
+                <ul>
+                    <li>Permite cargar eventos, ventas y entradas de prueba sin mezclarlas con los datos reales.</li>
+                    <li>Todo lo creado mientras está activo queda marcado como dato de prueba.</li>
+                    <li>Al desactivarlo, se borra exactamente eso y los datos reales quedan intactos.</li>
+                    <li>El panel se identifica visualmente con la etiqueta “Modo Test”.</li>
+                </ul>
+
+                <h3>Blanqueo de la base</h3>
+                <div class="callout callout--danger">
+                    <strong>Acción irreversible</strong>
+                    <p>
+                        Deja el sistema como recién instalado: borra eventos, ventas, entradas,
+                        escaneos, sorteos, usuarios y publicidad; restaura la configuración y los
+                        medios de pago por defecto; y crea el administrador inicial. Se debe usar
+                        únicamente cuando se quiere empezar de cero.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 20 -->
+            <section class="doc-section" id="puesta-en-marcha">
+                <h2><span class="num">20</span> Puesta en marcha</h2>
+                <p class="lead">
+                    Checklist recomendado antes de abrir la venta al público.
+                </p>
+
+                <ol class="steps">
+                    <li>
+                        <b>Configurar los medios de pago</b>
+                        Activar MercadoPago y/o Multipago, cargar credenciales y probar la conexión.
+                    </li>
+                    <li>
+                        <b>Crear el evento</b>
+                        Cargar datos, portada, primer número de entrada y dígitos.
+                    </li>
+                    <li>
+                        <b>Cargar los tipos de entrada</b>
+                        Precio, stock, máximo por compra, cuotas, pulseras y flyers.
+                    </li>
+                    <li>
+                        <b>Definir medios por evento</b>
+                        Revisar que el evento tenga habilitados los medios correctos.
+                    </li>
+                    <li>
+                        <b>Publicar el evento</b>
+                        Verificarlo en el portal y ajustar el orden de los eventos.
+                    </li>
+                    <li>
+                        <b>Probar una compra</b>
+                        Hacer una venta real o en Modo Test y confirmar la acreditación.
+                    </li>
+                    <li>
+                        <b>Probar el escaneo</b>
+                        Escanear una entrada de prueba y verificar los resultados.
+                    </li>
+                    <li>
+                        <b>Asignar operadores</b>
+                        Dar de alta vendedores y cajeros, asignarles eventos y medios de pago.
+                    </li>
+                </ol>
+
+                <div class="callout callout--tip">
+                    <strong>Consejo</strong>
+                    <p>
+                        Hacer la prueba de punta a punta en <strong>Modo Test</strong> y, al terminar,
+                        desactivarlo para borrar los datos de prueba.
+                    </p>
+                </div>
+            </section>
+
+            <!-- ================================================== 21 -->
+            <section class="doc-section" id="faq">
+                <h2><span class="num">21</span> Preguntas frecuentes</h2>
+
+                <h3>El pago se hizo, pero la orden sigue pendiente. ¿Qué hago?</h3>
+                <p>
+                    Esperar unos minutos y usar <strong>Reconciliar</strong> en la orden. El sistema
+                    consulta el pago con el proveedor y la acredita si está aprobado.
+                </p>
+
+                <h3>El comprador perdió el QR. ¿Cómo lo recupera?</h3>
+                <p>
+                    Puede entrar a “Mis entradas” con su DNI o recibir el link público de su compra.
+                    El administrador también puede reimprimir el QR desde el panel.
+                </p>
+
+                <h3>Una entrada figura como “ya usada” y la persona dice que no ingresó.</h3>
+                <p>
+                    Revisar el historial de escaneos: allí se ve la fecha, el operador y el resultado.
+                    Una entrada usada no puede volver a validarse.
+                </p>
+
+                <h3>¿Se puede vender sin stock?</h3>
+                <p>
+                    No. El sistema controla el stock por tipo de entrada y rechaza la venta cuando no
+                    hay disponibilidad.
+                </p>
+
+                <h3>¿Qué pasa si el comprador abandona el pago?</h3>
+                <p>
+                    La orden vence a las 23:59:59 del mismo día en que se creó y el stock vuelve a
+                    estar disponible. Si la venta del tipo termina antes, vence en ese momento.
+                    También se puede cancelar manualmente desde “Mis compras”.
+                </p>
+
+                <h3>Cambió el precio de la entrada y había una orden pendiente. ¿Qué pasa?</h3>
+                <p>
+                    La orden pendiente queda invalidada: no se puede pagar el precio anterior. El
+                    comprador debe iniciar una compra nueva con el precio vigente.
+                </p>
+
+                <h3>¿Se puede cambiar el número inicial de un evento?</h3>
+                <p>
+                    No. La numeración queda fijada al crear el evento para no descuadrar las entradas
+                    ya emitidas.
+                </p>
+
+                <h3>¿Cómo se cambia el orden de los eventos en el portal?</h3>
+                <p>
+                    Desde el módulo <strong>Eventos</strong>, arrastrando y soltando las filas. El
+                    portal usa ese mismo orden.
+                </p>
+
+                <h3>¿Se puede reembolsar una entrada?</h3>
+                <p>
+                    El sistema permite anular entradas impagas. Una orden pagada debe reembolsarse
+                    por el medio de pago correspondiente antes de anular sus entradas.
+                </p>
+
+                <h3>¿Qué pasa si el evento mezcla entradas con cuotas distintas?</h3>
+                <p>
+                    Todas las entradas de la compra deben admitir la misma financiación. El máximo de
+                    cuotas es el del tipo más restrictivo.
+                </p>
+            </section>
+
+            <!-- ================================================== 22 -->
+            <section class="doc-section" id="glosario">
+                <h2><span class="num">22</span> Glosario</h2>
+
+                <dl class="kv">
+                    <dt>Evento</dt><dd>Actividad para la que se venden entradas.</dd>
+                    <dt>Tipo de entrada</dt><dd>Categoría dentro de un evento (General, VIP, Menores, etc.).</dd>
+                    <dt>Orden</dt><dd>Compra completa. Puede contener una o varias entradas.</dd>
+                    <dt>Entrada</dt><dd>Unidad individual con su número, identificador y QR.</dd>
+                    <dt>Reserva / stock</dt><dd>Cupo comprometido por una orden pendiente y liberado si vence o se cancela.</dd>
+                    <dt>Pulsera</dt><dd>Indicación física del ingreso, con color y texto por tipo de entrada.</dd>
+                    <dt>QR firmado</dt><dd>Código con una firma digital que impide su falsificación.</dd>
+                    <dt>Acreditar / acreditarse</dt><dd>Confirmar el pago y habilitar las entradas.</dd>
+                    <dt>Webhook / notificación</dt><dd>Aviso automático que envía el proveedor de pago cuando cobra.</dd>
+                    <dt>Reconciliar</dt><dd>Consultar manualmente el pago con el proveedor cuando la notificación no llegó.</dd>
+                    <dt>POS</dt><dd>Punto de venta presencial (caja).</dd>
+                    <dt>Sorteo</dt><dd>Elección al azar de una entrada ganadora entre las elegibles.</dd>
+                    <dt>Proyección</dt><dd>Pantalla pública que muestra los resultados del sorteo.</dd>
+                    <dt>Modo Test</dt><dd>Entorno con datos de prueba que se pueden borrar sin tocar los reales.</dd>
+                </dl>
+            </section>
+
+            <!-- ================================================== 23 -->
+            <section class="doc-section" id="anexos">
+                <h2><span class="num">23</span> Anexos</h2>
+
+                <h3>A. Matriz de roles</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Acción</th>
+                                <th>Admin</th>
+                                <th>Administrativo</th>
+                                <th>Vendedor</th>
+                                <th>Cajero</th>
+                                <th>Comprador</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Configurar eventos y medios de pago</td><td class="yes">Sí</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+                            <tr><td>Publicidad y configuración del sitio</td><td class="yes">Sí</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+                            <tr><td>Estadísticas</td><td class="yes">Todas</td><td class="partial">Sus eventos</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+                            <tr><td>Sorteos</td><td class="yes">Todos</td><td class="partial">Sus eventos</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+                            <tr><td>Usuarios</td><td class="yes">Todos</td><td class="partial">Vendedores de sus eventos</td><td class="no">No</td><td class="no">No</td><td class="no">No</td></tr>
+                            <tr><td>Vender en el POS</td><td class="yes">Sí</td><td class="partial">Sus eventos</td><td class="partial">Sus eventos</td><td class="no">No</td><td class="no">No</td></tr>
+                            <tr><td>Escanear entradas</td><td class="yes">Sí</td><td class="no">No</td><td class="no">No</td><td class="partial">Sus eventos</td><td class="no">No</td></tr>
+                            <tr><td>Comprar entradas</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="no">No</td><td class="yes">Sí</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>B. Estados</h3>
+                <div class="grid grid--3">
+                    <div class="card">
+                        <h4>Evento</h4>
+                        <p>Borrador → Publicado → Cerrado / Cancelado.</p>
+                    </div>
+                    <div class="card">
+                        <h4>Orden</h4>
+                        <p>Pendiente → Pagada. Pendiente → Cancelada / Vencida.</p>
+                    </div>
+                    <div class="card">
+                        <h4>Entrada</h4>
+                        <p>Válida → Usada. Válida → Cancelada / Vencida.</p>
+                    </div>
+                </div>
+
+                <h3>C. Flujo resumido</h3>
+                <div class="flow">
+                    <div class="flow__step"><span class="k">Admin</span><b>Configura medios</b><span>Cuentas y modalidades.</span></div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step"><span class="k">Admin</span><b>Crea el evento</b><span>Datos, numeración y orden.</span></div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step"><span class="k">Admin</span><b>Carga entradas</b><span>Precios, stock y pulseras.</span></div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step"><span class="k">Comprador</span><b>Compra</b><span>Portal o POS.</span></div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step"><span class="k">Sistema</span><b>Acredita</b><span>Efectivo u online.</span></div>
+                    <div class="flow__arrow">→</div>
+                    <div class="flow__step"><span class="k">Cajero</span><b>Escanea</b><span>Valida e ingresa.</span></div>
+                </div>
+
+                <div class="callout callout--info">
+                    <strong>Documento complementario</strong>
+                    <p>
+                        El PDF <span class="mono">flujo_completo.pdf</span> contiene una lámina visual de
+                        dos páginas con este mismo recorrido para presentaciones.
+                    </p>
+                </div>
+            </section>
+
+        </div>
+
+        <footer class="doc-foot">
+            Documentación operativa del sistema de venta de entradas · Versión 1.0 · Octubre de 2026
+        </footer>
+    </main>
+</div>
+
+<button class="to-top" id="toTop" type="button" title="Volver arriba" aria-label="Volver arriba">↑</button>
+
+<script>
+    (function () {
+        var sidebar = document.getElementById('sidebar');
+        var overlay = document.getElementById('overlay');
+        var menuBtn = document.getElementById('menuBtn');
+        var toTop = document.getElementById('toTop');
+        var toc = document.getElementById('toc');
+        var tocSearch = document.getElementById('tocSearch');
+        var links = Array.prototype.slice.call(toc.querySelectorAll('a'));
+        var sections = links
+            .map(function (a) { return document.querySelector(a.getAttribute('href')); })
+            .filter(Boolean);
+
+        function closeMenu() {
+            sidebar.classList.remove('is-open');
+            overlay.classList.remove('is-open');
+        }
+
+        if (menuBtn) {
+            menuBtn.addEventListener('click', function () {
+                sidebar.classList.toggle('is-open');
+                overlay.classList.toggle('is-open');
+            });
+        }
+
+        if (overlay) {
+            overlay.addEventListener('click', closeMenu);
+        }
+
+        links.forEach(function (a) {
+            a.addEventListener('click', function () {
+                if (window.matchMedia('(max-width: 900px)').matches) {
+                    closeMenu();
+                }
+            });
+        });
+
+        function onScroll() {
+            var current = null;
+
+            for (var i = 0; i < sections.length; i++) {
+                if (sections[i].getBoundingClientRect().top <= 140) {
+                    current = sections[i].id;
+                }
+            }
+
+            links.forEach(function (a) {
+                a.classList.toggle('is-active', a.getAttribute('href') === '#' + current);
+            });
+
+            toTop.classList.toggle('is-visible', window.scrollY > 600);
+        }
+
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+
+        toTop.addEventListener('click', function () {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        if (tocSearch) {
+            tocSearch.addEventListener('input', function () {
+                var q = tocSearch.value.trim().toLowerCase();
+
+                links.forEach(function (a) {
+                    a.style.display = a.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+                });
+            });
+        }
+
+        window.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                closeMenu();
+            }
+        });
+    })();
+</script>
+</body>
+</html>

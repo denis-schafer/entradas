@@ -94,6 +94,7 @@ Route::prefix('tickets-admin')->name('tickets-admin.')->group(function () {
         // Lo unico que ve un cajero. Sin tickets.staff: tickets.auth ya verifico
         // que esta autenticado y habilitado, y acao no se separa por rol.
         Route::get('scans', [TicketsScanController::class, 'index'])->name('scans.index');
+        Route::post('scans/preview', [TicketsScanController::class, 'preview'])->name('scans.preview');
         Route::post('scans', [TicketsScanController::class, 'scan'])->name('scans.scan');
 
         // El cajero necesita leer los eventos para elegir contra cual esta

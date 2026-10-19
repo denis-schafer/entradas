@@ -9,7 +9,7 @@
  *     ambas usan el mismo codigo PUM. La orden se confirma por webhook o por
  *     validacion.
  */
-import { ref, onMounted, onBeforeUnmount } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import api, { toError } from '../api.js';
 import { toast } from '../ui/toast.js';
 
@@ -28,6 +28,26 @@ const error = ref('');
 const methods = ref([]);
 const chosen = ref(null);
 const paying = ref(false);
+const expiresAt = ref(null);
+
+const expiresLabel = computed(() => {
+    if (!expiresAt.value) {
+        return '';
+    }
+
+    const date = new Date(expiresAt.value);
+
+    if (Number.isNaN(date.getTime())) {
+        return '';
+    }
+
+    return date.toLocaleString('es-AR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+});
 
 const qr = ref(null);
 const paid = ref(false);
@@ -43,6 +63,7 @@ async function loadMethods() {
         const { data } = await api.get(`tickets-portal/api/orders/${orderId}/payment-methods`);
 
         methods.value = data.methods || [];
+        expiresAt.value = data.expires_at || null;
         error.value = '';
 
         if (methods.value.length === 1) {
@@ -208,11 +229,21 @@ onBeforeUnmount(stopPolling);
     <div class="payment">
         <h2 class="payment__title">Completar el pago</h2>
 
+        <p v-if="expiresLabel" class="text-muted-2 small mb-3">
+            <i class="bi bi-clock me-1"></i>
+            Esta reserva vence el {{ expiresLabel }}. Despues de esa hora se libera el stock.
+        </p>
+
         <div v-if="loading" class="d-flex justify-content-center py-5">
             <div class="spinner-border text-primary"></div>
         </div>
 
-        <div v-else-if="error" class="alert alert-danger small">{{ error }}</div>
+        <div v-else-if="error" class="alert alert-danger small">
+            {{ error }}
+            <button type="button" class="btn btn-link btn-sm p-0 ms-1" @click="emit('navigate', 'events')">
+                Ver eventos
+            </button>
+        </div>
 
         <template v-else-if="!chosen">
             <p class="text-muted-2 small">Elegi como pagar tu compra.</p>
@@ -243,7 +274,7 @@ onBeforeUnmount(stopPolling);
             </div>
 
             <div v-else-if="cancelled" class="alert alert-warning small">
-                La orden se cancelo. Podes reintentar el pago.
+                La reserva venció o la orden se canceló. Podes reintentar el pago.
                 <button type="button" class="btn btn-link btn-sm p-0 ms-1" @click="goBackToList">
                     Volver a elegir medio
                 </button>

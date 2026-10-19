@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\OrderExpiry;
 use App\Services\OrderPaymentService;
 use App\Services\Payments\EventPaymentMethods;
 use App\Services\Payments\MercadoPagoCheckout;
 use App\Services\Payments\PaymentGatewayRegistry;
 use App\Services\Payments\PaymentSetupException;
 use App\Services\TicketOrderService;
+use App\Support\OrderWindow;
 use App\Support\PaymentMethodFilter;
 use App\Support\QrRenderer;
 use App\Support\TicketNumber;
@@ -308,6 +310,18 @@ class TicketsPosController extends Controller
             return response()->json(['message' => 'Esta venta no tiene un link de pago pendiente.'], 422);
         }
 
+        if (! OrderWindow::isPayable($order)) {
+            if (OrderWindow::isPastDeadline($order) || ! OrderWindow::typesAreAvailable($order)) {
+                app(OrderExpiry::class)->expireIfPastDue($order);
+
+                return response()->json(['message' => 'La reserva vencio. Genera una venta nueva.'], 422);
+            }
+
+            app(OrderExpiry::class)->expireForPriceChange($order);
+
+            return response()->json(['message' => 'El precio de las entradas cambio. Genera una venta nueva.'], 422);
+        }
+
         try {
             $payment = $this->buildPayment((int) $order->id, (string) $order->payment_method, null, true);
         } catch (PaymentSetupException $e) {
@@ -486,6 +500,14 @@ class TicketsPosController extends Controller
                 return "Tipo de entrada {$item['ticket_type_id']} no disponible";
             }
 
+            if ($type->sale_start_at !== null && now()->lt($type->sale_start_at)) {
+                return "La venta de {$type->name} todavia no comenzo";
+            }
+
+            if ($type->sale_end_at !== null && now()->gt($type->sale_end_at)) {
+                return "La venta de {$type->name} ya termino";
+            }
+
             if ($type->stock !== null && ($type->sold_count + (int) $item['qty']) > $type->stock) {
                 return "Stock insuficiente para {$type->name}";
             }
@@ -554,6 +576,17 @@ class TicketsPosController extends Controller
     {
         $order = DB::table('tickets_orders')->where('id', $orderId)->first();
 
+        if (! $order) {
+            throw new PaymentSetupException('Orden no encontrada', 404);
+        }
+
+        if (! OrderWindow::isPayable($order)) {
+            throw new PaymentSetupException(
+                'La reserva venció o el precio cambió. Generá una venta nueva.',
+                410,
+            );
+        }
+
         if ($method === 'mercadopago') {
             $preference = app(MercadoPagoCheckout::class)->preferenceForOrder($order, $reuse);
 
@@ -598,7 +631,7 @@ class TicketsPosController extends Controller
         $variant = $this->multipagoVariant($order, $variant);
         $orderId = (int) $order->id;
         $eventId = (int) $order->event_id;
-        $due = now()->addHours(24)->toDateString();
+        $due = OrderWindow::deadline($order)->toDateString();
 
         if ($variant === 'button') {
             $reference = $gateway->pumCode($orderId, $due, (float) $order->total, $eventId);

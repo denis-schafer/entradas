@@ -3,6 +3,8 @@
 namespace App\Services\Payments;
 
 use App\Support\MercadoPagoToken;
+use App\Support\OrderWindow;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -29,6 +31,8 @@ class MercadoPagoCheckout
      */
     public function preferenceForOrder(object $order, bool $reuse = false): array
     {
+        $this->assertPayable($order);
+
         if ($reuse && ! empty($order->payment_reference)) {
             $existing = $this->fetchPreference($order, (string) $order->payment_reference);
 
@@ -47,6 +51,8 @@ class MercadoPagoCheckout
      */
     public function createPreferenceForOrder(object $order): array
     {
+        $this->assertPayable($order);
+
         $event = DB::table('tickets_events')->where('id', $order->event_id)->first();
 
         if (! $event) {
@@ -145,6 +151,16 @@ class MercadoPagoCheckout
         if (str_starts_with($publicBase, 'https://')) {
             $payload['auto_return'] = 'approved';
         }
+
+        /*
+        | La preferencia vence junto con la orden: al final del dia en que se
+        | creo o al cerrar la venta del tipo, lo que ocurra primero. Asi el
+        | comprador no puede pagar un precio viejo al dia siguiente.
+        */
+        $deadline = OrderWindow::deadline($order);
+        $payload['expires'] = true;
+        $payload['expiration_date_from'] = CarbonImmutable::now()->toIso8601String();
+        $payload['expiration_date_to'] = $deadline->toIso8601String();
 
         $response = Http::withToken($accessToken)->timeout(20)->post(self::API, $payload);
 
@@ -249,9 +265,21 @@ class MercadoPagoCheckout
     }
 
     /**
+     * La orden tiene que seguir pendiente, dentro de su dia y con el precio
+     * vigente. Si no, no se genera una preferencia nueva.
+     */
+    private function assertPayable(object $order): void
+    {
+        if (! OrderWindow::isPayable($order)) {
+            throw new PaymentSetupException(
+                'La reserva venció o el precio de las entradas cambió. Iniciá una compra nueva.',
+                410,
+            );
+        }
+    }
+
+    /**
      * Base publica para back_urls y notification_url, sin ruta.
-     * Null cuando no hay una URL https alcanzable, para avisar en vez de
-     * mandar a MercadoPago un localhost.
      *
      * Si MP_REQUIRE_PUBLIC_URL=false (modo dev), devuelve el app.url aunque
      * sea localhost: util para probar el checkout detras de un tunel o para

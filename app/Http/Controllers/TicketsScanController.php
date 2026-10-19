@@ -199,6 +199,165 @@ class TicketsScanController extends Controller
     }
 
     /**
+     * Vista previa de un QR: valida la firma, resuelve la entrada y devuelve
+     * los datos del comprador SIN marcarla como usada. Es lo que permite que
+     * el cajero revise nombre, DNI, email y tipo de entrada antes de confirmar.
+     *
+     * Los rechazos (usada, invalida, otro evento) si quedan en el historial de
+     * escaneos: son intentos reales de ingreso. La unica que no se registra es
+     * la entrada valida, porque todavia falta que el cajero confirme.
+     */
+    public function preview(Request $request): JsonResponse
+    {
+        $scanner = $request->user();
+
+        $validated = $request->validate([
+            'qr_payload' => 'required|string',
+            'event_id' => 'required|integer',
+        ]);
+
+        $eventId = (int) $validated['event_id'];
+
+        if ($scanner?->isCashier() && ! in_array($eventId, $scanner->assignedEventIds(), true)) {
+            return response()->json([
+                'result' => 'forbidden',
+                'message' => 'No estas asignado a este evento',
+                'can_validate' => false,
+            ], 403);
+        }
+
+        $secret = QrPayload::secret();
+        $raw = trim($validated['qr_payload']);
+        $payload = QrPayload::verify($raw, $secret);
+
+        // Igual que en scan(): se acepta el uuid pelado que va impreso debajo
+        // del QR, siempre que tenga forma de uuid.
+        if (! $payload && ($uuid = self::looseUuid($raw))) {
+            $payload = ['uuid' => $uuid];
+        }
+
+        if (! $payload) {
+            $message = 'QR no valido';
+
+            return $this->log($eventId, null, 'invalid', $message, [
+                'result' => 'invalid',
+                'message' => $message,
+                'can_validate' => false,
+            ]);
+        }
+
+        $ticket = DB::table('tickets_tickets')
+            ->leftJoin('tickets_event_ticket_types as tt', 'tickets_tickets.ticket_type_id', '=', 'tt.id')
+            ->leftJoin('tickets_orders as o', 'tickets_tickets.order_id', '=', 'o.id')
+            ->leftJoin('tickets_events as e', 'tickets_tickets.event_id', '=', 'e.id')
+            ->where('tickets_tickets.uuid', $payload['uuid'])
+            ->select([
+                'tickets_tickets.*',
+                'tt.name as type_name',
+                'tt.wristband_color as type_wristband_color',
+                'tt.wristband_label',
+                'o.buyer_name', 'o.buyer_dni', 'o.buyer_email', 'o.buyer_phone',
+                'o.status as order_status',
+                'e.name as event_name',
+            ])
+            ->first();
+
+        if (! $ticket) {
+            $message = 'Entrada no encontrada';
+
+            return $this->log($eventId, null, 'invalid', $message, [
+                'result' => 'invalid',
+                'message' => $message,
+                'can_validate' => false,
+            ]);
+        }
+
+        $wristband = [
+            'color' => $ticket->type_wristband_color ?? null,
+            'label' => $ticket->wristband_label ?? null,
+        ];
+
+        $details = [
+            'ticket' => [
+                'id' => (int) $ticket->id,
+                'type_name' => $ticket->type_name,
+                'event_name' => $ticket->event_name,
+                'buyer_name' => $ticket->buyer_name,
+                'buyer_dni' => $ticket->buyer_dni,
+                'buyer_email' => $ticket->buyer_email,
+                'buyer_phone' => $ticket->buyer_phone,
+                'status' => $ticket->status,
+                'order_status' => $ticket->order_status,
+                'used_at' => $ticket->used_at,
+            ],
+            'wristband_color' => $wristband['color'],
+            'wristband_label' => $wristband['label'],
+        ];
+
+        if ((int) $ticket->event_id !== $eventId) {
+            $message = 'Esta entrada es para otro evento';
+
+            return $this->log($eventId, (int) $ticket->id, 'wrong_event', $message, [
+                ...$details,
+                'result' => 'wrong_event',
+                'message' => $message,
+                'can_validate' => false,
+            ]);
+        }
+
+        if ($ticket->order_status !== 'paid') {
+            $message = 'La entrada no esta pagada';
+
+            return $this->log($eventId, (int) $ticket->id, 'invalid', $message, [
+                ...$details,
+                'result' => 'invalid',
+                'message' => $message,
+                'can_validate' => false,
+            ]);
+        }
+
+        if ($ticket->status === 'cancelled') {
+            $message = 'Entrada cancelada';
+
+            return $this->log($eventId, (int) $ticket->id, 'invalid', $message, [
+                ...$details,
+                'result' => 'invalid',
+                'message' => $message,
+                'can_validate' => false,
+            ]);
+        }
+
+        if ($ticket->status === 'used') {
+            $message = 'Esta entrada ya fue utilizada';
+
+            return $this->log($eventId, (int) $ticket->id, 'used', $message, [
+                ...$details,
+                'result' => 'used',
+                'message' => $message,
+                'can_validate' => false,
+            ]);
+        }
+
+        if ($ticket->status !== 'valid') {
+            $message = 'La entrada no esta vigente';
+
+            return $this->log($eventId, (int) $ticket->id, 'invalid', $message, [
+                ...$details,
+                'result' => 'invalid',
+                'message' => $message,
+                'can_validate' => false,
+            ]);
+        }
+
+        return response()->json([
+            ...$details,
+            'result' => 'valid',
+            'message' => 'Entrada valida',
+            'can_validate' => true,
+        ]);
+    }
+
+    /**
      * Listado de escaneos, para la seccion Escaneos del panel.
      */
     public function index(Request $request): JsonResponse

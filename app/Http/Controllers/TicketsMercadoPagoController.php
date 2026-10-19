@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\OrderExpiry;
 use App\Services\OrderPaymentService;
 use App\Services\Payments\MercadoPagoCheckout;
 use App\Services\Payments\MercadoPagoGateway;
 use App\Services\Payments\PaymentSetupException;
 use App\Services\Realtime;
 use App\Support\MercadoPagoToken;
+use App\Support\OrderWindow;
 use App\Support\QrPayload;
 use App\Support\QrRenderer;
 use App\Support\TicketNumber;
@@ -49,6 +51,18 @@ class TicketsMercadoPagoController extends Controller
 
         if (! $order) {
             return response()->json(['message' => 'Orden no encontrada o ya pagada'], 404);
+        }
+
+        if (! OrderWindow::isPayable($order)) {
+            if (OrderWindow::isPastDeadline($order) || ! OrderWindow::typesAreAvailable($order)) {
+                app(OrderExpiry::class)->expireIfPastDue($order);
+
+                return response()->json(['message' => 'La reserva vencio. Inicia una compra nueva.'], 410);
+            }
+
+            app(OrderExpiry::class)->expireForPriceChange($order);
+
+            return response()->json(['message' => 'El precio de las entradas cambio. Inicia una compra nueva.'], 409);
         }
 
         try {
@@ -230,7 +244,33 @@ class TicketsMercadoPagoController extends Controller
                 return response()->json(['status' => 'ok']);
             }
 
-            app(OrderPaymentService::class)->markPaid($order, $paymentId, $payment, 'mercadopago');
+            $amount = $payment['transaction_amount'] ?? null;
+
+            if ($amount !== null && abs((float) $order->total - (float) $amount) > 0.01) {
+                Log::critical('[TicketsMP Webhook] importe no coincide', [
+                    'order_id' => $order->id,
+                    'esperado' => $order->total,
+                    'llegado' => $amount,
+                ]);
+
+                return response()->json(['status' => 'amount_mismatch']);
+            }
+
+            $result = app(OrderPaymentService::class)->markPaid(
+                $order,
+                $paymentId,
+                $payment,
+                'mercadopago',
+                $payment['date_approved'] ?? $payment['date_created'] ?? null,
+            );
+
+            if (! $result['changed'] && in_array($result['reason'], ['outside_window', 'price_changed'], true)) {
+                Log::critical('[TicketsMP Webhook] pago no acreditado', [
+                    'order_id' => $order->id,
+                    'payment_id' => $paymentId,
+                    'reason' => $result['reason'],
+                ]);
+            }
 
             return response()->json(['status' => 'ok']);
         } catch (\Throwable $e) {

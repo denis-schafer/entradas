@@ -87,8 +87,19 @@ class TicketsMultipagoController extends Controller
                 $order,
                 (string) $normalized['payment_id'],
                 ['transaction_amount' => $normalized['amount']],
-                'multipago'
+                'multipago',
+                $cobro['fecha_pago'] ?? null,
             );
+
+            if (! $result['changed'] && in_array($result['reason'], ['outside_window', 'price_changed'], true)) {
+                Log::critical('[Multipago Webhook] pago no acreditado', [
+                    'order_id' => $order->id,
+                    'payment_id' => $normalized['payment_id'],
+                    'reason' => $result['reason'],
+                ]);
+
+                return $this->plain('fuera de plazo', 200);
+            }
 
             return $this->plain($result['changed'] ? 'insertado' : 'ya ingresado');
         } catch (\Throwable $e) {

@@ -37,6 +37,9 @@ const manual = ref('');
 const result = ref(null);
 const history = ref([]);
 const busy = ref(false);
+const pending = ref(null);
+const validating = ref(false);
+const validationError = ref('');
 
 /* El bloqueo post-lectura. Sin esto, el mismo QR se redecodifica en el siguiente
    frame y el operador ve "valida" flashing aunque la entrada ya se quemo. */
@@ -70,6 +73,40 @@ const LOOKUP = {
 };
 
 const view = computed(() => LOOKUP[result.value?.result] || LOOKUP.invalid);
+
+// Resultado de la vista previa que se esta mostrando en el modal.
+const pendingView = computed(() => LOOKUP[pending.value?.result] || LOOKUP.invalid);
+
+const TICKET_STATUS = {
+    valid: 'Valida',
+    used: 'Usada',
+    cancelled: 'Cancelada',
+    expired: 'Vencida',
+};
+
+const ORDER_STATUS = {
+    paid: 'Pagada',
+    pending: 'Pendiente',
+    cancelled: 'Cancelada',
+    expired: 'Vencida',
+};
+
+function ticketStatusLabel(status) {
+    return TICKET_STATUS[status] || status || '—';
+}
+
+function orderStatusLabel(status) {
+    return ORDER_STATUS[status] || status || '—';
+}
+
+function initials(name) {
+    return String(name || '')
+        .trim()
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('');
+}
 
 // El evento en curso, para mostrarlo como nombre cuando hay solo uno.
 const currentEvent = computed(() => events.value.find((event) => event.id === selectedEvent.value) || null);
@@ -223,45 +260,98 @@ function lock(seconds = 2.5) {
     }, seconds * 1000);
 }
 
+function addHistory(data) {
+    history.value = [
+        {
+            id: Date.now(),
+            result: data.result,
+            message: data.message,
+            ticket: data.ticket,
+            event_id: Number(selectedEvent.value),
+        },
+        ...history.value,
+    ].slice(0, 12);
+}
+
+/**
+ * Primer paso: pide los datos del comprador SIN consumir la entrada. El
+ * backend valida la firma, el evento, el pago y el estado, pero no marca la
+ * entrada como usada. La camara queda bloqueada mientras el modal este abierto
+ * para que el mismo QR no se lea dos veces.
+ */
 async function handlePayload(text) {
-    if (!selectedEvent.value || busy.value) {
+    if (!selectedEvent.value || busy.value || pending.value) {
         return;
     }
 
     busy.value = true;
     result.value = null;
+    validationError.value = '';
 
     try {
-        const { data } = await api.post('tickets-admin/scans', {
+        const { data } = await api.post('tickets-admin/scans/preview', {
             qr_payload: text,
             event_id: Number(selectedEvent.value),
         });
 
-        result.value = data;
-
-        history.value = [
-            {
-                id: Date.now(),
-                result: data.result,
-                message: data.message,
-                ticket: data.ticket,
-                event_id: Number(selectedEvent.value),
-            },
-            ...history.value,
-        ].slice(0, 12);
-
-        lock();
+        pending.value = { ...data, qr_payload: text };
+        locked = true;
     } catch (err) {
         const formatted = toError(err);
 
         result.value = {
             result: 'invalid',
-            message: formatted.message || 'No se pudo validar la entrada',
+            message: formatted.message || 'No se pudo leer la entrada',
         };
 
         lock();
     } finally {
         busy.value = false;
+    }
+}
+
+function cancelPending() {
+    if (validating.value) {
+        return;
+    }
+
+    pending.value = null;
+    validationError.value = '';
+
+    // Cooldown para que el mismo QR que sigue frente a la camara no vuelva a
+    // abrir el modal de inmediato.
+    lock();
+}
+
+/**
+ * Segundo paso: recien aca se consume la entrada. Si otro operador la valido
+ * entre la vista previa y este click, el backend responde "ya utilizada" y se
+ * muestra ese resultado.
+ */
+async function confirmValidation() {
+    if (!pending.value || validating.value || !pending.value.can_validate) {
+        return;
+    }
+
+    validating.value = true;
+    validationError.value = '';
+
+    try {
+        const { data } = await api.post('tickets-admin/scans', {
+            qr_payload: pending.value.qr_payload,
+            event_id: Number(selectedEvent.value),
+        });
+
+        result.value = data;
+        addHistory(data);
+        pending.value = null;
+        lock();
+    } catch (err) {
+        const formatted = toError(err);
+
+        validationError.value = formatted.message || 'No se pudo validar la entrada';
+    } finally {
+        validating.value = false;
     }
 }
 
@@ -284,6 +374,8 @@ watch(selectedEvent, (next, previous) => {
         stopCamera();
         result.value = null;
         history.value = [];
+        pending.value = null;
+        validationError.value = '';
     }
 });
 
@@ -315,6 +407,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     stopCamera();
+    pending.value = null;
     unsubscribeEvent?.();
     stopPolling();
 });
@@ -442,6 +535,105 @@ onBeforeUnmount(() => {
                     </ul>
                 </section>
             </aside>
+        </div>
+
+        <!--
+            Revision previa: se muestran los datos del comprador y recien al
+            tocar "Validar entrada" se consume el QR. Cancelar/cerrar no marca
+            la entrada como usada.
+        -->
+        <div v-if="pending" class="modal-backdrop" @click.self="cancelPending">
+            <div class="modal-sheet scan-modal" role="dialog" aria-modal="true" aria-labelledby="scan-modal-title">
+                <header class="modal-sheet__head">
+                    <div>
+                        <span class="scan-modal__badge" :class="`scan-modal__badge--${pendingView.tone}`">
+                            <i class="bi" :class="pendingView.icon"></i>
+                            {{ pendingView.title }}
+                        </span>
+                        <h2 id="scan-modal-title" class="scan-modal__title">Revisá los datos del comprador</h2>
+                    </div>
+                    <button
+                        type="button"
+                        class="btn btn-link p-0 text-decoration-none"
+                        aria-label="Cerrar"
+                        @click="cancelPending"
+                    >
+                        <i class="bi bi-x-lg fs-5"></i>
+                    </button>
+                </header>
+
+                <div class="modal-sheet__body">
+                    <template v-if="pending.ticket">
+                        <div class="scan-modal__person">
+                            <span class="scan-modal__avatar">{{ initials(pending.ticket.buyer_name) }}</span>
+                            <div class="min-w-0">
+                                <h3 class="scan-modal__name">{{ pending.ticket.buyer_name || 'Sin nombre' }}</h3>
+                                <p class="scan-modal__meta">
+                                    {{ pending.ticket.type_name || 'Entrada' }}
+                                    <span v-if="pending.ticket.event_name"> · {{ pending.ticket.event_name }}</span>
+                                </p>
+                            </div>
+                        </div>
+
+                        <dl class="scan-modal__data">
+                            <div>
+                                <dt>DNI</dt>
+                                <dd>{{ pending.ticket.buyer_dni || '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt>Email</dt>
+                                <dd>{{ pending.ticket.buyer_email || '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt>Teléfono</dt>
+                                <dd>{{ pending.ticket.buyer_phone || '—' }}</dd>
+                            </div>
+                            <div>
+                                <dt>Estado</dt>
+                                <dd>
+                                    {{ ticketStatusLabel(pending.ticket.status) }}
+                                    <span v-if="pending.ticket.order_status && pending.ticket.order_status !== 'paid'">
+                                        · orden {{ orderStatusLabel(pending.ticket.order_status) }}
+                                    </span>
+                                </dd>
+                            </div>
+                        </dl>
+
+                        <div v-if="pending.wristband_color || pending.wristband_label" class="scan-modal__wristband">
+                            <span
+                                class="scan-modal__dot"
+                                :style="{ background: pending.wristband_color || '#000000' }"
+                            ></span>
+                            Pulsera: {{ pending.wristband_label || 'sin texto' }}
+                        </div>
+                    </template>
+
+                    <p v-if="pending.message && !pending.can_validate" class="scan-modal__message">
+                        {{ pending.message }}
+                    </p>
+
+                    <p v-if="validationError" class="scan-modal__error">
+                        <i class="bi bi-exclamation-triangle me-1"></i>{{ validationError }}
+                    </p>
+                </div>
+
+                <footer class="modal-sheet__foot">
+                    <button type="button" class="btn btn-et-ghost" @click="cancelPending">
+                        {{ pending.can_validate ? 'Cancelar' : 'Cerrar' }}
+                    </button>
+                    <button
+                        v-if="pending.can_validate"
+                        type="button"
+                        class="btn btn-et-primary"
+                        :disabled="validating"
+                        @click="confirmValidation"
+                    >
+                        <span v-if="validating" class="spinner-border spinner-border-sm me-1"></span>
+                        <i v-else class="bi bi-check2-circle me-1"></i>
+                        Validar entrada
+                    </button>
+                </footer>
+            </div>
         </div>
     </div>
 </template>
@@ -578,5 +770,138 @@ onBeforeUnmount(() => {
 
 .min-w-0 {
     min-width: 0;
+}
+
+/* ------------------------------------------------------ modal de revision */
+.scan-modal {
+    max-width: 560px;
+}
+
+.scan-modal__badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.72rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem;
+    margin-bottom: 0.4rem;
+}
+
+.scan-modal__badge--success {
+    background: var(--et-success-soft, #e7f7ec);
+    color: var(--et-success, #15803d);
+}
+
+.scan-modal__badge--warning {
+    background: var(--et-warning-soft, #fff4e3);
+    color: var(--et-warning, #b45309);
+}
+
+.scan-modal__badge--danger {
+    background: var(--et-danger-soft, #fdecec);
+    color: var(--et-danger, #b91c1c);
+}
+
+.scan-modal__title {
+    font-size: 1.1rem;
+    font-weight: 800;
+    margin: 0;
+}
+
+.scan-modal__person {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin-bottom: 1rem;
+}
+
+.scan-modal__avatar {
+    width: 3.2rem;
+    height: 3.2rem;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--et-primary-soft, #edeaff);
+    color: var(--et-primary, #5b4bdb);
+    font-weight: 800;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.scan-modal__name {
+    font-size: 1.05rem;
+    font-weight: 800;
+    margin: 0;
+}
+
+.scan-modal__meta {
+    margin: 0.1rem 0 0;
+    color: var(--et-text-muted, #5a6474);
+    font-size: 0.85rem;
+}
+
+.scan-modal__data {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem 1rem;
+    margin: 0 0 1rem;
+    padding: 0.85rem 1rem;
+    background: var(--et-surface-hover, #f4f6fb);
+    border-radius: var(--et-radius-sm, 9px);
+}
+
+.scan-modal__data div {
+    min-width: 0;
+}
+
+.scan-modal__data dt {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--et-text-faint, #8a94a6);
+    font-weight: 700;
+}
+
+.scan-modal__data dd {
+    margin: 0.1rem 0 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.scan-modal__wristband {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.scan-modal__dot {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
+    border: 1px solid rgb(0 0 0 / 15%);
+}
+
+.scan-modal__message {
+    margin: 0.5rem 0 0;
+    font-size: 0.9rem;
+    color: var(--et-text-muted, #5a6474);
+}
+
+.scan-modal__error {
+    margin: 0.75rem 0 0;
+    font-size: 0.85rem;
+    color: var(--et-danger, #b91c1c);
+}
+
+@media (max-width: 480px) {
+    .scan-modal__data {
+        grid-template-columns: 1fr;
+    }
 }
 </style>

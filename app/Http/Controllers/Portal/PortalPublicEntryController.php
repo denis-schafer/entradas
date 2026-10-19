@@ -33,7 +33,7 @@ class PortalPublicEntryController extends Controller
         $order = DB::table('tickets_orders as o')
             ->leftJoin('tickets_events as e', 'e.id', '=', 'o.event_id')
             ->where('o.public_token', $publicToken)
-            ->where('o.status', '!=', 'cancelled')
+            ->whereNotIn('o.status', ['cancelled', 'expired'])
             ->select([
                 'o.id', 'o.status', 'o.paid_at',
                 'e.id as event_id', 'e.name as event_name', 'e.starts_at',
@@ -48,7 +48,7 @@ class PortalPublicEntryController extends Controller
         $tickets = DB::table('tickets_tickets as t')
             ->leftJoin('tickets_event_ticket_types as tt', 't.ticket_type_id', '=', 'tt.id')
             ->where('t.order_id', $order->id)
-            ->where('t.status', '!=', 'cancelled')
+            ->whereNotIn('t.status', ['cancelled', 'expired'])
             ->orderBy('t.id')
             ->select([
                 't.id', 't.number', 't.uuid', 't.status', 't.used_at',
